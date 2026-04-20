@@ -4,7 +4,6 @@ import { useAppStore } from '@/store/appStore'
 import { api } from '@/lib/api'
 
 export const SessionSidebar: React.FC = () => {
-export const SessionSidebar: React.FC = () => {
   const sessions = useAppStore(state => state.sessions)
   const activeSessionId = useAppStore(state => state.activeSessionId)
   const setSessions = useAppStore(state => state.setSessions)
@@ -18,10 +17,14 @@ export const SessionSidebar: React.FC = () => {
   }, [setSessions])
 
   useEffect(() => {
-    // Load files for active session
+    // Load files and messages for active session
     if (activeSessionId) {
        api.getSources(activeSessionId)
          .then(files => useAppStore.getState().setFiles(activeSessionId, files))
+         .catch(console.error)
+         
+       api.getMessages(activeSessionId)
+         .then(msgs => useAppStore.getState().setMessages(activeSessionId, msgs))
          .catch(console.error)
     }
   }, [activeSessionId])

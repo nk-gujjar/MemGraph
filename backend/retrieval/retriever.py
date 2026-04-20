@@ -28,8 +28,11 @@ async def search_long_term_memory(query: str, session_id: str):
 async def get_event_memory(session_id: str):
     return await asyncio.to_thread(memory_store.get_event_memory, session_id)
 
+async def get_global_knowledge():
+    return await asyncio.to_thread(memory_store.get_all_global_knowledge)
+
 def merge_and_rank(results, intent):
-    rag_docs, tables, kg_triples, last_msgs, lt_memory, events = results
+    rag_docs, tables, kg_triples, last_msgs, lt_memory, events, global_kn = results
     
     ranked_items = []
     
@@ -69,6 +72,11 @@ def merge_and_rank(results, intent):
         for ev in events:
             add_result("event_memory", f"{ev['type']}: {ev['content']}", 0.15)
             
+    if not isinstance(global_kn, Exception):
+        for kn in global_kn:
+            # Global facts have high priority
+            add_result("global_memory", f"GLOBAL {kn['type']}: {kn['content']}", 0.35)
+            
     # Remove duplicates based on content
     seen = set()
     deduped = []
@@ -107,13 +115,15 @@ async def retrieve(query: str, session_id: str, intent: str) -> RetrievalResult:
         
     if intent == "chat":
         # For casual chat, only bring in personal/history context, skip heavy doc search
+        # For casual chat, only bring in history context, skip document/knowledge noise unless essential
         tasks = [
             asyncio.to_thread(list),                     # rag_docs
             asyncio.to_thread(list),                     # tables
-            get_kg_triples(search_query, session_id),    # KG store (relevant for personal facts)
-            get_last_messages(session_id),               # history
+            asyncio.to_thread(list),                     # kg_triples (skip for chat)
+            get_last_messages(session_id),               # history (essential)
             asyncio.to_thread(list),                     # lt_memory
-            get_event_memory(session_id),                # events
+            asyncio.to_thread(list),                     # event_memory (skip for chat)
+            asyncio.to_thread(list),                     # global_knowledge (skip for pure greetings)
         ]
     else:
         tasks = [
@@ -123,6 +133,7 @@ async def retrieve(query: str, session_id: str, intent: str) -> RetrievalResult:
             get_last_messages(session_id),             # circular buffer
             search_long_term_memory(search_query, session_id),# FAISS memory namespace
             get_event_memory(session_id),              # SQLite events
+            get_global_knowledge(),                      # Global cross-session facts
         ]
     
     # If intent is summary, add a broad fetch task

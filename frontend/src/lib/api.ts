@@ -37,5 +37,11 @@ export const api = {
     const res = await fetch(`/api/sessions/${sessionId}/sources`)
     if (!res.ok) throw new Error('Failed to get sources')
     return res.json()
+  },
+
+  getMessages: async (sessionId: string): Promise<any[]> => {
+    const res = await fetch(`/api/sessions/${sessionId}/messages`)
+    if (!res.ok) throw new Error('Failed to get messages')
+    return res.json()
   }
 }

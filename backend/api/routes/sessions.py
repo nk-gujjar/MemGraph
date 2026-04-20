@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
-from backend.db.sqlite import get_db, Session as DBSession
+from backend.db.sqlite import get_db, Session as DBSession, ChatMessage
 from sqlalchemy.orm import Session
 import uuid
 
@@ -26,6 +26,11 @@ def list_sessions(db: Session = Depends(get_db)):
         "input_tokens": s.input_tokens,
         "output_tokens": s.output_tokens
     } for s in sessions]
+
+@router.get("/{session_id}/messages")
+def get_session_messages(session_id: str, db: Session = Depends(get_db)):
+    msgs = db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.timestamp.asc()).all()
+    return [{"id": str(m.id), "role": m.role, "content": m.content} for m in msgs]
 
 @router.delete("/{session_id}")
 def delete_session(session_id: str, db: Session = Depends(get_db)):

@@ -21,6 +21,7 @@ interface AppState {
   setIsUploading: (status: boolean) => void
   updateSessionStats: (sessionId: string, tokens: { total: number, input: number, output: number }) => void
   patchFile: (sessionId: string, filename: string, patch: Partial<UploadedFile>) => void
+  setMessages: (sessionId: string, messages: Message[]) => void
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -88,6 +89,13 @@ export const useAppStore = create<AppState>((set) => ({
       }
     }
   }),
+
+  setMessages: (sessionId, messages) => set((state) => ({
+    messages: {
+      ...state.messages,
+      [sessionId]: messages
+    }
+  })),
 
   appendToken: (sessionId, token) => set((state) => {
     const msgs = state.messages[sessionId] || []

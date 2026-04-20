@@ -34,7 +34,12 @@ class PostProcessor:
                 events = json.loads(f"[{match.group(1)}]")
                 for ev in events:
                     if "type" in ev and "content" in ev:
-                        await asyncio.to_thread(memory_store.add_event_memory, session_id, ev["type"], ev["content"])
+                        if ev["type"] in ("user_preference", "user_background"):
+                            # Save globally across all sessions
+                            await asyncio.to_thread(memory_store.add_global_knowledge, ev["type"], ev["content"])
+                        else:
+                            # Save to session-specific event memory
+                            await asyncio.to_thread(memory_store.add_event_memory, session_id, ev["type"], ev["content"])
         except Exception as e:
             print(f"Event extraction skipped/failed: {e}")
 
