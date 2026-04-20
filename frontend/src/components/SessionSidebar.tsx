@@ -4,12 +4,27 @@ import { useAppStore } from '@/store/appStore'
 import { api } from '@/lib/api'
 
 export const SessionSidebar: React.FC = () => {
-  const { sessions, activeSessionId, setSessions, setActiveSession, addSession, removeSession } = useAppStore()
+export const SessionSidebar: React.FC = () => {
+  const sessions = useAppStore(state => state.sessions)
+  const activeSessionId = useAppStore(state => state.activeSessionId)
+  const setSessions = useAppStore(state => state.setSessions)
+  const setActiveSession = useAppStore(state => state.setActiveSession)
+  const addSession = useAppStore(state => state.addSession)
+  const removeSession = useAppStore(state => state.removeSession)
 
   useEffect(() => {
-    // Initial load
+    // Initial load of sessions
     api.listSessions().then(setSessions).catch(console.error)
   }, [setSessions])
+
+  useEffect(() => {
+    // Load files for active session
+    if (activeSessionId) {
+       api.getSources(activeSessionId)
+         .then(files => useAppStore.getState().setFiles(activeSessionId, files))
+         .catch(console.error)
+    }
+  }, [activeSessionId])
 
   const handleNewSession = async () => {
     try {
@@ -70,9 +85,15 @@ export const SessionSidebar: React.FC = () => {
               <p className="text-sm font-medium truncate text-foreground">
                  {s.id.split('-')[0]}
               </p>
-              <p className="text-xs text-muted-foreground truncate flex items-center justify-between w-full">
-                 <span>{new Date(s.last_active).toLocaleDateString()}</span>
-                 <span>{s.message_count} msgs</span>
+              <p className="text-xs text-muted-foreground truncate flex flex-col gap-0.5 w-full mt-1">
+                 <span className="flex justify-between w-full">
+                    <span>{new Date(s.last_active).toLocaleDateString()}</span>
+                    <span>{s.message_count} msgs</span>
+                 </span>
+                 <span className="flex justify-between w-full font-mono opacity-80 scale-[0.9] origin-left">
+                    <span>Tokens: {s.tokens_used}</span>
+                    <span className="text-[10px] bg-muted px-1 rounded">I:{s.input_tokens} O:{s.output_tokens}</span>
+                 </span>
               </p>
             </div>
             

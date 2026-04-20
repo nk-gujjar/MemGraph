@@ -1,5 +1,6 @@
 import asyncio
 import cohere
+import time
 from backend.config import settings
 from backend.retrieval.vector_store import vstore
 from backend.retrieval.memory_store import memory_store
@@ -98,18 +99,31 @@ async def rephrase_query(query: str, session_id: str) -> str:
         return query
 
 async def retrieve(query: str, session_id: str, intent: str) -> RetrievalResult:
+    start_retrieval = time.time()
     search_query = query
-    if intent in ("follow_up", "summarize") or len(query.split()) < 4:
+    # Only rephrase if it's a follow-up or summary and NOT a casual chat
+    if intent != "chat" and (intent in ("follow_up", "summarize") or len(query.split()) < 4):
         search_query = await rephrase_query(query, session_id)
         
-    tasks = [
-        search_rag_docs(search_query, session_id),       # FAISS text index
-        search_tables(search_query, session_id),          # FAISS table index
-        get_kg_triples(search_query, session_id),                     # KG store
-        get_last_messages(session_id),             # circular buffer
-        search_long_term_memory(search_query, session_id),# FAISS memory namespace
-        get_event_memory(session_id),              # SQLite events
-    ]
+    if intent == "chat":
+        # For casual chat, only bring in personal/history context, skip heavy doc search
+        tasks = [
+            asyncio.to_thread(list),                     # rag_docs
+            asyncio.to_thread(list),                     # tables
+            get_kg_triples(search_query, session_id),    # KG store (relevant for personal facts)
+            get_last_messages(session_id),               # history
+            asyncio.to_thread(list),                     # lt_memory
+            get_event_memory(session_id),                # events
+        ]
+    else:
+        tasks = [
+            search_rag_docs(search_query, session_id),       # FAISS text index
+            search_tables(search_query, session_id),          # FAISS table index
+            get_kg_triples(search_query, session_id),                     # KG store
+            get_last_messages(session_id),             # circular buffer
+            search_long_term_memory(search_query, session_id),# FAISS memory namespace
+            get_event_memory(session_id),              # SQLite events
+        ]
     
     # If intent is summary, add a broad fetch task
     if intent == "summarize":
@@ -130,9 +144,13 @@ async def retrieve(query: str, session_id: str, intent: str) -> RetrievalResult:
     merged = merge_and_rank(results, intent)
     
     # Observe retrieval
+    latency_ms = (time.time() - start_retrieval) * 1000
+    # Estimate tokens for the search query
+    input_tokens = len(search_query) // 4
+    
     # Count returned sources (rag_doc or table)
     sources = [i for i in merged.items if i["type"] in ("rag_doc", "table")]
     scores = [i["score"] for i in merged.items]
-    lf_client.trace_retrieval(session_id, query, len(sources), scores)
+    lf_client.trace_retrieval(session_id, query, len(sources), scores, latency_ms, input_tokens)
     
     return merged

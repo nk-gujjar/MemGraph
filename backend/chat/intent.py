@@ -20,6 +20,11 @@ class IntentDetector:
         self.cache = {}
 
     def detect(self, session_id: str, query: str) -> str:
+        # Fast path for common greetings
+        greetings = {"hi", "hello", "hey", "hola", "greetings", "good morning", "good afternoon", "good evening"}
+        if query.strip().lower() in greetings:
+            return "chat"
+
         cache_key = f"{session_id}:{query}"
         if cache_key in self.cache:
             return self.cache[cache_key]

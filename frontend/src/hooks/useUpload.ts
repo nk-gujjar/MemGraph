@@ -37,11 +37,11 @@ export const useUpload = (sessionId: string | null) => {
     }
   }, [sessionId, setFiles, updateFileStatus])
 
-  const upload = async (files: File[]) => {
+  const upload = async (files: File[], descriptions?: string[]) => {
     if (!sessionId) return
     setIsUploading(true)
     try {
-      const response = await api.uploadFiles(sessionId, files)
+      const response = await api.uploadFiles(sessionId, files, descriptions)
       // Immediately update local state with returned files so UI transitions
       setFiles(sessionId, response.files)
     } catch (e) {

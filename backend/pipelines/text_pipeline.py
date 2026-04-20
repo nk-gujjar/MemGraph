@@ -6,44 +6,79 @@ import time
 
 class TextPipeline:
     def __init__(self):
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=settings.CHUNK_SIZE,
-            chunk_overlap=settings.CHUNK_OVERLAP
-        )
+        # We'll initialize these on demand if needed or different ones for different strategies
+        pass
 
-    def process(self, session_id: str, filename: str, elements: list) -> int:
+    def process(self, session_id: str, filename: str, elements: list, strategy: str = "recursive") -> int:
         """
         Process unstructured Text elements. Returns number of chunks created.
         """
         # Combine text elements or process them piece by piece
         # elements here are Unstructured elements that are not tables.
         
-        # Strategy: iterate through elements, aggregate strings, split into chunks, keeping page numbers if available
-        
-        texts_to_embed = []
-        metadatas = []
-        
-        current_text = ""
-        current_page = None
-        
         chunks = []
         
-        for el in elements:
-            # try to extract page_number
-            page_number = el.metadata.page_number if hasattr(el, 'metadata') and hasattr(el.metadata, 'page_number') else None
+        if strategy == "recursive":
+            # Just join all text and split recursively
+            full_text = "\n\n".join([str(el) for el in elements if str(el).strip()])
+            splitter = RecursiveCharacterTextSplitter(
+                chunk_size=settings.CHUNK_SIZE,
+                chunk_overlap=settings.CHUNK_OVERLAP
+            )
+            split_texts = splitter.split_text(full_text)
+            for i, t in enumerate(split_texts):
+                chunks.append({
+                    "text": t,
+                    "metadata": {
+                        "filename": filename,
+                        "page_number": None, 
+                        "chunk_index": i
+                    }
+                })
+        
+        elif strategy == "page":
+            # Group by page
+            pages = {}
+            for el in elements:
+                page = el.metadata.page_number if hasattr(el, 'metadata') and hasattr(el.metadata, 'page_number') else 0
+                if page not in pages:
+                    pages[page] = []
+                pages[page].append(str(el))
             
-            text = str(el)
-            if not text.strip():
-                continue
-                
-            chunks.append({
-                "text": text,
-                "metadata": {
-                    "filename": filename,
-                    "page_number": page_number,
-                    "chunk_index": len(chunks)
-                }
-            })
+            idx = 0
+            for page_num, page_texts in sorted(pages.items()):
+                page_content = "\n\n".join(page_texts)
+                splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=settings.CHUNK_SIZE,
+                    chunk_overlap=settings.CHUNK_OVERLAP
+                )
+                page_chunks = splitter.split_text(page_content)
+                for t in page_chunks:
+                    chunks.append({
+                        "text": t,
+                        "metadata": {
+                            "filename": filename,
+                            "page_number": page_num,
+                            "chunk_index": idx
+                        }
+                    })
+                    idx += 1
+        
+        else: # subsection / default (uses unstructured elements as-is)
+            for el in elements:
+                page_number = el.metadata.page_number if hasattr(el, 'metadata') and hasattr(el.metadata, 'page_number') else None
+                text = str(el)
+                if not text.strip():
+                    continue
+                    
+                chunks.append({
+                    "text": text,
+                    "metadata": {
+                        "filename": filename,
+                        "page_number": page_number,
+                        "chunk_index": len(chunks)
+                    }
+                })
         
         if not chunks:
             return 0

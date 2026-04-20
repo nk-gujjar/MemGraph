@@ -7,7 +7,12 @@ import { SourceCitations } from './SourceCitations'
 import { FileUploader } from './FileUploader'
 
 export const ChatWindow: React.FC = () => {
-  const { activeSessionId, messages, isStreaming, uploadedFiles, isUploading } = useAppStore()
+  const activeSessionId = useAppStore(state => state.activeSessionId)
+  const messages = useAppStore(state => state.messages)
+  const isStreaming = useAppStore(state => state.isStreaming)
+  const uploadedFiles = useAppStore(state => state.uploadedFiles)
+  const isUploading = useAppStore(state => state.isUploading)
+  
   const { sendMessage, isConnected } = useChat(activeSessionId)
   
   const [input, setInput] = useState('')
@@ -34,7 +39,9 @@ export const ChatWindow: React.FC = () => {
 
   // If session is active but no files and no messages, show uploader heavily
   const showEmptyState = msgs.length === 0 && files.length === 0 && !isUploading
-  const isAnyFileProcessing = files.some(f => f.status === 'processing') || isUploading
+  const isAnyFileProcessing = files.some(f => f.status === 'processing')
+  const isAtLeastOneFileReady = files.some(f => f.status === 'completed')
+  const isAtLeastOneFilePresent = files.length > 0
 
   const handleSend = () => {
     if (input.trim() && !isStreaming) {
@@ -77,7 +84,7 @@ export const ChatWindow: React.FC = () => {
             <div className="max-w-3xl mx-auto w-full pb-8">
               {msgs.length === 0 ? (
                  <div className="py-20 text-center flex flex-col items-center">
-                    {isAnyFileProcessing ? (
+                    {(isAnyFileProcessing && !isAtLeastOneFileReady) ? (
                         <>
                           <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-6 animate-pulse">
                              <Loader className="w-8 h-8 text-primary animate-spin" />
@@ -118,11 +125,15 @@ export const ChatWindow: React.FC = () => {
                   </div>
                 ))
               )}
-              {isStreaming && msgs[msgs.length - 1]?.role === 'assistant' && msgs[msgs.length - 1].content === '' && (
-                 <div className="flex gap-1 ml-14 mb-4">
-                   <div className="w-2 h-2 rounded-full bg-primary/40 animate-bounce [animation-delay:-0.3s]"></div>
-                   <div className="w-2 h-2 rounded-full bg-primary/40 animate-bounce [animation-delay:-0.15s]"></div>
-                   <div className="w-2 h-2 rounded-full bg-primary/40 animate-bounce"></div>
+              {/* Always show loader if streaming and last message is potentially incomplete */}
+              {isStreaming && (
+                 <div className="flex gap-1 ml-14 mb-4 items-center h-8">
+                    <div className="flex gap-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary/40 animate-bounce [animation-delay:-0.3s]"></div>
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary/40 animate-bounce [animation-delay:-0.15s]"></div>
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary/40 animate-bounce"></div>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground ml-2 animate-pulse">Generating response...</span>
                  </div>
               )}
               <div ref={bottomRef} />

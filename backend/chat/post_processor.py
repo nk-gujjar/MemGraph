@@ -12,12 +12,12 @@ class PostProcessor:
     def __init__(self):
         self.cohere_client = cohere.Client(api_key=settings.COHERE_API_KEY)
 
-    async def process(self, session_id: str, query: str, response: str, tokens_used: int = 0):
+    async def process(self, session_id: str, query: str, response: str, input_tokens: int = 0, output_tokens: int = 0):
         # Fire and forget tasks
         asyncio.create_task(self._importance_filter(session_id, response))
         asyncio.create_task(self._event_extraction(session_id, query, response))
         asyncio.create_task(self._extract_kg_triples(session_id, response))
-        asyncio.create_task(self._update_session_stats(session_id, tokens_used))
+        asyncio.create_task(self._update_session_stats(session_id, input_tokens, output_tokens))
 
     async def _importance_filter(self, session_id: str, response: str):
         if len(response.split()) > 50: # roughly > 50 words ~ 60-70 tokens
@@ -51,13 +51,15 @@ class PostProcessor:
         except Exception as e:
             pass
 
-    async def _update_session_stats(self, session_id: str, tokens_used: int):
+    async def _update_session_stats(self, session_id: str, input_tokens: int, output_tokens: int):
         db = SessionLocal()
         try:
             sess = db.query(Session).filter(Session.id == session_id).first()
             if sess:
                 sess.message_count += 2 # user + assistant
-                sess.tokens_used += tokens_used
+                sess.input_tokens += input_tokens
+                sess.output_tokens += output_tokens
+                sess.tokens_used += (input_tokens + output_tokens)
                 db.commit()
         finally:
             db.close()

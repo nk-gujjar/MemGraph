@@ -22,7 +22,9 @@ def list_sessions(db: Session = Depends(get_db)):
         "created_at": s.created_at,
         "last_active": s.last_active,
         "message_count": s.message_count,
-        "tokens_used": s.tokens_used
+        "tokens_used": s.tokens_used,
+        "input_tokens": s.input_tokens,
+        "output_tokens": s.output_tokens
     } for s in sessions]
 
 @router.delete("/{session_id}")

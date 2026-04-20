@@ -18,9 +18,12 @@ export const api = {
     if (!res.ok) throw new Error('Failed to delete session')
   },
 
-  uploadFiles: async (sessionId: string, files: File[]): Promise<{ files: UploadedFile[] }> => {
+  uploadFiles: async (sessionId: string, files: File[], descriptions?: string[]): Promise<{ files: UploadedFile[] }> => {
     const formData = new FormData()
     files.forEach(f => formData.append('files', f))
+    if (descriptions) {
+      descriptions.forEach(d => formData.append('descriptions', d))
+    }
     
     const res = await fetch(`/api/sessions/${sessionId}/upload`, {
       method: 'POST',
