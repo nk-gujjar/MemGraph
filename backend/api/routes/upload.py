@@ -1,5 +1,6 @@
 import os
 import asyncio
+import json
 from fastapi import APIRouter, UploadFile, File, BackgroundTasks
 from sse_starlette.sse import EventSourceResponse
 from backend.config import settings
@@ -58,7 +59,12 @@ async def upload_files(session_id: str, background_tasks: BackgroundTasks, files
             db.add(db_file)
             db.commit()
             
-            uploaded_info.append({"name": file.filename, "status": "processing"})
+            uploaded_info.append({"filename": file.filename, "status": "processing"})
+            
+            # Queue ingestion
+            if session_id not in progress_tracker:
+                progress_tracker[session_id] = {}
+            progress_tracker[session_id][file.filename] = "processing"
             
             # Queue ingestion
             background_tasks.add_task(_ingest_background, session_id, file_path, file.filename)
@@ -73,13 +79,15 @@ async def get_upload_progress(session_id: str):
     async def event_generator():
         while True:
             if session_id in progress_tracker:
-                yield {"data": str(progress_tracker[session_id])}
+                yield {"data": json.dumps(progress_tracker[session_id])}
+            else:
+                yield {"data": json.dumps({})}
             
             # Stop condition if all are completed or failed
             if session_id in progress_tracker:
                 all_done = all(v != "processing" for v in progress_tracker[session_id].values())
                 if all_done:
-                    yield {"data": str(progress_tracker[session_id])}
+                    yield {"data": json.dumps(progress_tracker[session_id])}
                     break
                     
             await asyncio.sleep(1)

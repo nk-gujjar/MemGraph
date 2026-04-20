@@ -7,6 +7,7 @@ interface AppState {
   messages: Record<string, Message[]>
   uploadedFiles: Record<string, UploadedFile[]>
   isStreaming: boolean
+  isUploading: boolean
   setSessions: (sessions: Session[]) => void
   addSession: (session: Session) => void
   removeSession: (id: string) => void
@@ -17,6 +18,7 @@ interface AppState {
   appendToken: (sessionId: string, token: string) => void
   setSources: (sessionId: string, messageId: string, sources: any[]) => void
   setIsStreaming: (status: boolean) => void
+  setIsUploading: (status: boolean) => void
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -25,6 +27,7 @@ export const useAppStore = create<AppState>((set) => ({
   messages: {},
   uploadedFiles: {},
   isStreaming: false,
+  isUploading: false,
 
   setSessions: (sessions) => set({ sessions }),
   
@@ -90,5 +93,7 @@ export const useAppStore = create<AppState>((set) => ({
     }
   }),
 
-  setIsStreaming: (status) => set({ isStreaming: status })
+  setIsStreaming: (status) => set({ isStreaming: status }),
+  
+  setIsUploading: (status) => set({ isUploading: status })
 }))

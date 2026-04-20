@@ -5,7 +5,7 @@ import { useAppStore } from '@/store/appStore'
 import { useUpload } from '@/hooks/useUpload'
 
 export const FileUploader: React.FC = () => {
-  const { activeSessionId, uploadedFiles } = useAppStore()
+  const { activeSessionId, uploadedFiles, isUploading } = useAppStore()
   const { upload } = useUpload(activeSessionId)
   
   const files = activeSessionId ? uploadedFiles[activeSessionId] || [] : []
@@ -21,6 +21,7 @@ export const FileUploader: React.FC = () => {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
+    disabled: isUploading,
     accept: {
       'application/pdf': ['.pdf'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
@@ -32,7 +33,7 @@ export const FileUploader: React.FC = () => {
   })
 
   // Full page dropzone if no files
-  if (files.length === 0) {
+  if (files.length === 0 && !isUploading) {
     return (
       <div 
         {...getRootProps()} 
@@ -49,19 +50,26 @@ export const FileUploader: React.FC = () => {
     )
   }
 
-  // Mini uploader when we have files
+  // Mini uploader when we have files or are uploading
   return (
     <div className="flex flex-col gap-4">
-      <div 
-        {...getRootProps()} 
-        className={`p-4 border-2 border-dashed rounded-lg flex items-center justify-center cursor-pointer transition-colors
-          ${isDragActive ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted/50'}`}
-      >
-         <input {...getInputProps()} />
-         <span className="text-sm text-muted-foreground flex items-center gap-2">
-           <UploadCloud className="w-4 h-4" /> Add more documents
-         </span>
-      </div>
+      {isUploading ? (
+        <div className="p-6 border-2 border-dashed border-primary/40 bg-primary/5 rounded-lg flex flex-col items-center justify-center gap-3">
+           <Loader className="w-8 h-8 text-primary animate-spin" />
+           <span className="text-sm font-medium text-primary">Uploading documents...</span>
+        </div>
+      ) : (
+        <div 
+          {...getRootProps()} 
+          className={`p-4 border-2 border-dashed rounded-lg flex items-center justify-center cursor-pointer transition-colors
+            ${isDragActive ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted/50'}`}
+        >
+           <input {...getInputProps()} />
+           <span className="text-sm text-muted-foreground flex items-center gap-2">
+             <UploadCloud className="w-4 h-4" /> Add more documents
+           </span>
+        </div>
+      )}
 
       <div className="flex flex-col gap-2">
         <h4 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Indexed Documents</h4>
