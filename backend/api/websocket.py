@@ -12,6 +12,8 @@ from backend.chat.post_processor import post_processor
 from backend.retrieval.memory_store import memory_store
 from backend.observability.langfuse_client import lf_client
 from backend.observability.log_writer import QueryLogger
+from backend.observability.confidence import compute_confidence_from_memgraph_result
+from backend.observability.llm_judge import evaluate_async
 
 class ConnectionManager:
     def __init__(self):
@@ -103,9 +105,14 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 ]
                 print(f"Total contextual items retrieved: {len(retrieval_result.items)}")
                 print(f"Retrieved {len(sources)} sources (PDF/Table chunks).")
+
+                # Confidence score — computed from retrieval, no LLM call
+                confidence = compute_confidence_from_memgraph_result(retrieval_result.items)
+
                 qlog.add_span(retrieval_span.finish(
                     chunks_returned=len(retrieval_result.items),
-                    sources=source_labels
+                    sources=source_labels,
+                    confidence=confidence["combined"]
                 ))
 
                 # 5. Stream LLM
@@ -164,16 +171,37 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                         usage={"input": input_tokens, "output": output_tokens}
                     )
 
-                # LOG: Write to JSONL log file
+                # LOG + LLM-as-Judge:
+                # Response already streamed to user — now run judge concurrently
+                # with post-processing. Await the score before writing the log
+                # so everything lands in ONE record (no latency impact for user).
+                judge_task = asyncio.create_task(
+                    evaluate_async(
+                        query_id=qlog.query_id,
+                        session_id=session_id,
+                        approach="memgraph",
+                        query=query,
+                        context=context_str,
+                        response=full_response
+                    )
+                )
+
+                # 8. Post Processing (fire and forget) + await judge together
+                judge_scores, _ = await asyncio.gather(
+                    judge_task,
+                    post_processor.process(session_id, query, full_response, input_tokens, output_tokens),
+                    return_exceptions=True
+                )
+
+                # Write single complete log record (response + judge in one line)
                 qlog.write(
                     output=full_response,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
-                    sources=source_labels
+                    sources=source_labels,
+                    confidence=confidence,
+                    judge=judge_scores if isinstance(judge_scores, dict) else None
                 )
-
-                # 8. Post Processing (fire and forget)
-                await post_processor.process(session_id, query, full_response, input_tokens, output_tokens)
 
                 # 9. Send sources
                 await websocket.send_json({"type": "source", "content": json.dumps(sources)})

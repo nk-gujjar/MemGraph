@@ -27,6 +27,8 @@ from traditional_rag.chain import trad_chain
 from traditional_rag.db import TradSessionLocal, TradSession
 from backend.observability.log_writer import QueryLogger  # shared log writer
 from backend.observability.langfuse_client import lf_client  # shared Langfuse
+from backend.observability.confidence import compute_confidence
+from backend.observability.llm_judge import evaluate_async
 
 router = APIRouter(tags=["trad-websocket"])
 _cohere_client = cohere.Client(api_key=trad_settings.COHERE_API_KEY)
@@ -104,9 +106,13 @@ async def _handle_chat(websocket: WebSocket, session_id: str):
                 ]
                 print(f"[TradWS] Retrieved {len(chunks)} chunks.")
 
+                # Confidence score — computed from FAISS similarity scores
+                confidence = compute_confidence(chunks)
+
                 qlog.add_span(retrieval_span.finish(
                     chunks_returned=len(chunks),
                     sources=source_labels,
+                    confidence=confidence["combined"]
                 ))
                 if lf_retrieval:
                     lf_retrieval.end(metadata={"chunks": len(chunks)})
@@ -195,17 +201,34 @@ async def _handle_chat(websocket: WebSocket, session_id: str):
                     )
 
                 # ── 9. Write JSONL log ───────────────────────────────────────
+                # Start the judge concurrently with memory summarization
+                # (user already got response, we run both and await together)
+                judge_task = asyncio.create_task(evaluate_async(
+                    query_id=qlog.query_id,
+                    session_id=session_id,
+                    approach="traditional_rag",
+                    query=query,
+                    context=doc_context,
+                    response=full_response
+                ))
+
+                # ── 10. Update session stats + memory summarization + judge ────
+                asyncio.create_task(_update_stats(session_id, input_tokens, output_tokens))
+
+                # Await judge so we can embed it in the log record
+                judge_scores = await judge_task
+
+                # Write single complete log record
                 qlog.write(
                     output=full_response,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
                     sources=source_labels,
+                    confidence=confidence,
+                    judge=judge_scores if isinstance(judge_scores, dict) else None
                 )
 
-                # ── 10. Update session stats ──────────────────────────────────
-                asyncio.create_task(_update_stats(session_id, input_tokens, output_tokens))
-
-                # ── 11. Trigger memory summarization if needed (fire & forget)─
+                # ── 11. Trigger memory summarization (fire & forget) ──────────
                 asyncio.create_task(
                     asyncio.to_thread(trad_memory.maybe_summarize, session_id)
                 )
