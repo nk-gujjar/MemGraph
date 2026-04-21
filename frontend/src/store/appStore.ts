@@ -90,12 +90,28 @@ export const useAppStore = create<AppState>((set) => ({
     }
   }),
 
-  setMessages: (sessionId, messages) => set((state) => ({
-    messages: {
-      ...state.messages,
-      [sessionId]: messages
+  setMessages: (sessionId, messages) => set((state) => {
+    // Safety merge: Only overwrite if we aren't streaming, or if the incoming list is meaningful
+    const currentMsgs = state.messages[sessionId] || []
+    
+    // If we're streaming, we ALREADY have the latest messages via appendToken
+    // Blindly taking DB state here might roll back the last few tokens.
+    if (state.isStreaming) {
+       return state;
     }
-  })),
+    
+    // If the list is empty and we have data, double check it's not a race
+    if (messages.length === 0 && currentMsgs.length > 0) {
+        return state;
+    }
+
+    return {
+      messages: {
+        ...state.messages,
+        [sessionId]: messages
+      }
+    }
+  }),
 
   appendToken: (sessionId, token) => set((state) => {
     const msgs = state.messages[sessionId] || []

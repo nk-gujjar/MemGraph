@@ -56,6 +56,16 @@ class MemoryStore:
         )
 
     def search_long_term_memory(self, session_id: str, query: str, top_k: int = 4):
+        # Latency optimization: skip if no memory exists for this session
+        db = SessionLocal()
+        from backend.db.sqlite import ChunkMetadata
+        try:
+            has_mem = db.query(ChunkMetadata).filter(ChunkMetadata.session_id == session_id, ChunkMetadata.filename == "__memory__").first()
+            if not has_mem:
+                return []
+        finally:
+            db.close()
+            
         # Retrieve text chunks and filter for __memory__
         all_results = vstore.search_text(session_id, query, top_k=top_k*5)
         memory_results = [r for r in all_results if r["filename"] == "__memory__"]

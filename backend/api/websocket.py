@@ -59,11 +59,19 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 
             print(f"\n[WS] Received query: '{query}' (Session: {session_id})")
             start_time = time.time()
+            
+            # OBSERVE: Initialize Trace
+            trace = lf_client.start_trace(
+                name="chat_turn", 
+                session_id=session_id, 
+                input_data=query,
+                tags=["chat"]
+            )
                 
             try:
                 # 1. Intent
                 print("Detecting intent...")
-                intent = await asyncio.to_thread(intent_detector.detect, session_id, query)
+                intent = await asyncio.to_thread(intent_detector.detect, session_id, query, parent_trace=trace)
                 print(f"Detected intent: {intent}")
                 
                 # 2. Add to memory (short term)
@@ -71,7 +79,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 
                 # 3. Retrieve
                 print(f"Retrieving context for query: '{query}'...")
-                retrieval_result = await retrieve(query, session_id, intent)
+                retrieval_result = await retrieve(query, session_id, intent, parent_trace=trace)
                 
                 # 4. Context Build
                 context_str, sources = context_builder.build(retrieval_result)
@@ -85,7 +93,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 await asyncio.sleep(0.05)
                 
                 full_response = ""
-                async for token in chat_chain.stream_response(query, context_str):
+                async for token in chat_chain.stream_response(query, context_str, parent_trace=trace):
                     full_response += token
                     await websocket.send_json({"type": "token", "content": token})
                     
@@ -95,7 +103,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 # 7. Trace and Token Stats
                 latency_ms = (time.time() - start_time) * 1000
                 
-                # Get exact token counts
+                # Get exact token counts for DB sync
                 try:
                     # Input tokens: system prompt + context + query
                     full_prompt = f"{chat_chain.llm.system_prompt if hasattr(chat_chain.llm, 'system_prompt') else ''}\nContext: {context_str}\nUser: {query}"
@@ -110,7 +118,20 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                     input_tokens = len(full_prompt) // 4
                     output_tokens = len(full_response) // 4
 
-                lf_client.trace_chat(session_id, query, intent, full_response, sources, latency_ms, input_tokens, output_tokens)
+                # OBSERVE: Finalize Trace metadata
+                if trace:
+                    trace.update(
+                        output=full_response,
+                        metadata={
+                            "intent": intent,
+                            "latency_ms": latency_ms,
+                            "sources_count": len(sources)
+                        },
+                        usage={
+                            "input": input_tokens,
+                            "output": output_tokens
+                        }
+                    )
                 
                 # 8. Post Processing (fire and forget)
                 await post_processor.process(session_id, query, full_response, input_tokens, output_tokens)
@@ -132,6 +153,8 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 })
                 
             except Exception as e:
+                if trace:
+                    trace.update(output=f"Error: {str(e)}")
                 print(f"Chat error: {e}")
                 await websocket.send_json({"type": "error", "content": f"An error occurred: {str(e)}"})
     except WebSocketDisconnect:

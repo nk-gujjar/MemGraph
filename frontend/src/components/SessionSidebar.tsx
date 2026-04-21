@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 export const SessionSidebar: React.FC = () => {
   const sessions = useAppStore(state => state.sessions)
   const activeSessionId = useAppStore(state => state.activeSessionId)
+  const isStreaming = useAppStore(state => state.isStreaming)
   const setSessions = useAppStore(state => state.setSessions)
   const setActiveSession = useAppStore(state => state.setActiveSession)
   const addSession = useAppStore(state => state.addSession)
@@ -23,21 +24,25 @@ export const SessionSidebar: React.FC = () => {
          .then(files => useAppStore.getState().setFiles(activeSessionId, files))
          .catch(console.error)
          
+       // Hydrate messages ONLY on session switch, never during or immediately after a stream
+       // We use a ref or just rely on activeSessionId changing to trigger this
        api.getMessages(activeSessionId)
          .then(msgs => useAppStore.getState().setMessages(activeSessionId, msgs))
          .catch(console.error)
     }
-  }, [activeSessionId])
+  }, [activeSessionId]) // Removed isStreaming from dependencies to avoid Done-race-condition
 
   const handleNewSession = async () => {
     try {
       const res = await api.createSession()
-      const newSess = {
+      const newSess: Session = {
         id: res.session_id,
         created_at: new Date().toISOString(),
         last_active: new Date().toISOString(),
         message_count: 0,
-        tokens_used: 0
+        tokens_used: 0,
+        input_tokens: 0,
+        output_tokens: 0
       }
       addSession(newSess)
       setActiveSession(newSess.id)

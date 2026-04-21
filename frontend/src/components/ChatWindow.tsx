@@ -38,7 +38,9 @@ export const ChatWindow: React.FC = () => {
   }
 
   // If session is active but no files and no messages, show uploader heavily
-  const showEmptyState = msgs.length === 0 && files.length === 0 && !isUploading
+  // If session is active but no files and no messages, show uploader heavily
+  // FIX: If we are streaming, we are NOT in an empty state even if msgs.length is 0
+  const showEmptyState = msgs.length === 0 && files.length === 0 && !isUploading && !isStreaming
   const isAnyFileProcessing = files.some(f => f.status === 'processing')
   const isAtLeastOneFileReady = files.some(f => f.status === 'completed')
   const isAtLeastOneFilePresent = files.length > 0
