@@ -18,8 +18,10 @@ export default defineConfig({
       },
       "/ws": {
         target: "ws://localhost:8000",
-        ws: true
+        ws: true,
+        rewriteWsOrigin: true
       }
     }
   }
 })
+
