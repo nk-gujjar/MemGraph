@@ -4,6 +4,8 @@ export interface Session {
   last_active: string
   message_count: number
   tokens_used: number
+  input_tokens: number
+  output_tokens: number
 }
 
 export interface Message {

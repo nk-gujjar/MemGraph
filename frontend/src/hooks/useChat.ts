@@ -4,7 +4,13 @@ import { useAppStore } from '@/store/appStore'
 export const useChat = (sessionId: string | null) => {
   const wsRef = useRef<WebSocket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
-  const { addMessage, appendToken, setSources, setIsStreaming } = useAppStore()
+  
+  // Use stable selectors for actions to prevent effect re-runs on every message
+  const addMessage = useAppStore(state => state.addMessage)
+  const appendToken = useAppStore(state => state.appendToken)
+  const setSources = useAppStore(state => state.setSources)
+  const setIsStreaming = useAppStore(state => state.setIsStreaming)
+  const patchFile = useAppStore(state => state.patchFile)
 
   useEffect(() => {
     if (!sessionId) return
@@ -37,11 +43,23 @@ export const useChat = (sessionId: string | null) => {
                  useAppStore.getState().setSources(sessionId, msgs[msgs.length-1].id, src)
               }
             } catch (e) {}
+          } else if (data.type === 'stats') {
+            useAppStore.getState().updateSessionStats(data.session_id, {
+              total: data.tokens_used,
+              input: data.input_tokens,
+              output: data.output_tokens
+            })
+          } else if (data.type === 'ingestion_complete') {
+            useAppStore.getState().patchFile(sessionId, data.filename, {
+              status: data.status,
+              chunk_count: data.chunk_count,
+              table_count: data.table_count
+            })
           } else if (data.type === 'done') {
             setIsStreaming(false)
           } else if (data.type === 'error') {
             setIsStreaming(false)
-            addMessage(sessionId, { id: Date.now().toString(), role: 'assistant', content: `Error: ${data.content}` })
+            addMessage(sessionId, { id: crypto.randomUUID(), role: 'assistant', content: `Error: ${data.content}` })
           }
         } catch (e) {
           console.error('WebSocket message parsing error', e)
@@ -68,13 +86,21 @@ export const useChat = (sessionId: string | null) => {
   }, [sessionId, addMessage, appendToken, setSources, setIsStreaming])
 
   const sendMessage = (query: string) => {
-    if (!sessionId || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return
+    if (!sessionId || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      console.warn('Cannot send message: WebSocket not open or session missing')
+      return
+    }
+    
+    const userId = crypto.randomUUID()
+    const assistantId = crypto.randomUUID()
+
+    console.log(`[useChat] Sending message. UserID: ${userId}, AssistantID: ${assistantId}`)
     
     // Add user message to UI
-    addMessage(sessionId, { id: Date.now().toString(), role: 'user', content: query })
+    addMessage(sessionId, { id: userId, role: 'user', content: query })
     
     // Add empty assistant message to append to
-    addMessage(sessionId, { id: (Date.now() + 1).toString(), role: 'assistant', content: '' })
+    addMessage(sessionId, { id: assistantId, role: 'assistant', content: '' })
     
     setIsStreaming(true)
     

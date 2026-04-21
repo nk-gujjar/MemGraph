@@ -4,6 +4,8 @@ from unstructured.partition.auto import partition
 from unstructured.documents.elements import Table as UnstructuredTable
 from backend.pipelines.text_pipeline import text_pipeline
 from backend.pipelines.table_pipeline import table_pipeline
+from backend.pipelines.classifier import strategy_classifier
+from backend.db.sqlite import SessionLocal, UploadedFile
 from backend.observability.langfuse_client import lf_client
 
 async def process_document(session_id: str, file_path: str, filename: str):
@@ -11,16 +13,51 @@ async def process_document(session_id: str, file_path: str, filename: str):
     
     print(f"\n--- Ingestion started for {filename} (Session: {session_id}) ---")
     
-    # 1. Parse document using unstructured with chunking
-    print("Parsing document and chunking by title...")
-    elements = partition(
-        filename=file_path,
-        chunking_strategy="by_title",
-        max_characters=1000,
-        new_after_n_chars=800,
-        combine_text_under_n_chars=500
-    )
-    print(f"Parsed {len(elements)} chunked elements.")
+    # 1. Classification
+    db = SessionLocal()
+    description = None
+    try:
+        db_file = db.query(UploadedFile).filter(
+            UploadedFile.session_id == session_id,
+            UploadedFile.filename == filename
+        ).first()
+        if db_file:
+            description = db_file.description
+    finally:
+        db.close()
+
+    # Optimization: if no description, default to recursive and skip data fetch
+    if not description or not description.strip():
+        print("No description provided. Defaulting to 'recursive' strategy.")
+        strategy = "recursive"
+    else:
+        print(f"Description provided: '{description}'. Extracting preview for classification...")
+        # Quick partition without chunking just to get first few elements
+        preview_elements = partition(filename=file_path, strategy="fast")
+        preview_text = "\n".join([str(el) for el in preview_elements[:10]])
+        
+        strategy = strategy_classifier.classify(preview_text, description)
+        print(f"Selected strategy: {strategy}")
+
+    # 2. Parse document using unstructured with chunking
+    print(f"Parsing document with {strategy} context...")
+    
+    # If subsection, we use unstructured chunking
+    # If recursive or page, we'll do partitioning first then custom chunking in text_pipeline
+    
+    if strategy == "subsection":
+        elements = partition(
+            filename=file_path,
+            chunking_strategy="by_title",
+            max_characters=1000,
+            new_after_n_chars=800,
+            combine_text_under_n_chars=500
+        )
+    else:
+        # Standard partition, let text_pipeline handle chunking
+        elements = partition(filename=file_path)
+        
+    print(f"Parsed {len(elements)} elements.")
     
     # 2. Separate text vs tables
     table_elements = []
@@ -41,7 +78,7 @@ async def process_document(session_id: str, file_path: str, filename: str):
     
     # We use to_thread since our pipelines are synchronous
     print(f"Processing {len(text_elements)} text elements and {len(table_elements)} table elements...")
-    tasks.append(asyncio.to_thread(text_pipeline.process, session_id, filename, text_elements))
+    tasks.append(asyncio.to_thread(text_pipeline.process, session_id, filename, text_elements, strategy))
     tasks.append(asyncio.to_thread(table_pipeline.process, session_id, filename, table_elements))
     
     results = await asyncio.gather(*tasks, return_exceptions=True)

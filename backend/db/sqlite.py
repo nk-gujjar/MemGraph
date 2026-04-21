@@ -14,6 +14,8 @@ class Session(Base):
     last_active = Column(DateTime, default=datetime.utcnow)
     message_count = Column(Integer, default=0)
     tokens_used = Column(Integer, default=0)
+    input_tokens = Column(Integer, default=0)
+    output_tokens = Column(Integer, default=0)
 
 class ChunkMetadata(Base):
     __tablename__ = "chunk_metadata"
@@ -36,11 +38,26 @@ class TableMetadata(Base):
     raw_markdown = Column(Text)
     summary = Column(Text)
 
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String, index=True)
+    role = Column(String) # user, assistant
+    content = Column(Text)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+class GlobalKnowledge(Base):
+    __tablename__ = "global_knowledge"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    type = Column(String) # user_preference, general_fact, user_background
+    content = Column(Text)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
 class EventMemory(Base):
     __tablename__ = "event_memory"
     id = Column(Integer, primary_key=True, autoincrement=True)
     session_id = Column(String, index=True)
-    event_type = Column(String) # user_preference, user_goal, important_fact
+    event_type = Column(String) # user_goal, specific_context
     content = Column(Text)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
@@ -58,6 +75,7 @@ class UploadedFile(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     session_id = Column(String, index=True)
     filename = Column(String)
+    description = Column(String, nullable=True)
     status = Column(String)
     chunk_count = Column(Integer, default=0)
     table_count = Column(Integer, default=0)

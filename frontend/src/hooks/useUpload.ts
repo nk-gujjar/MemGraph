@@ -3,7 +3,7 @@ import { api } from '@/lib/api'
 import { useAppStore } from '@/store/appStore'
 
 export const useUpload = (sessionId: string | null) => {
-  const { setFiles, updateFileStatus } = useAppStore()
+  const { setFiles, updateFileStatus, setIsUploading } = useAppStore()
 
   useEffect(() => {
     if (!sessionId) return
@@ -13,16 +13,13 @@ export const useUpload = (sessionId: string | null) => {
 
     eventSource.onmessage = (event) => {
       try {
-        const dataStr = event.data.replace(/'/g, '"') // simple hack if python dict string uses single quotes
-        // We should actually make sure the python backend returns proper JSON instead of str(dict)
-        // But assuming valid JSON dict: { "filename": "status", ... }
-        const progressData = JSON.parse(dataStr)
+        const progressData = JSON.parse(event.data)
         
         Object.entries(progressData).forEach(([filename, status]) => {
           updateFileStatus(sessionId, filename, status as string)
         })
       } catch (e) {
-        // parsing error
+        console.error('Failed to parse SSE data:', e)
       }
     }
 
@@ -40,12 +37,17 @@ export const useUpload = (sessionId: string | null) => {
     }
   }, [sessionId, setFiles, updateFileStatus])
 
-  const upload = async (files: File[]) => {
+  const upload = async (files: File[], descriptions?: string[]) => {
     if (!sessionId) return
+    setIsUploading(true)
     try {
-      await api.uploadFiles(sessionId, files)
+      const response = await api.uploadFiles(sessionId, files, descriptions)
+      // Immediately update local state with returned files so UI transitions
+      setFiles(sessionId, response.files)
     } catch (e) {
       console.error(e)
+    } finally {
+      setIsUploading(false)
     }
   }
 

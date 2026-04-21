@@ -1,10 +1,12 @@
 import os
 import asyncio
-from fastapi import APIRouter, UploadFile, File, BackgroundTasks
+import json
+from fastapi import APIRouter, UploadFile, File, BackgroundTasks, Form
 from sse_starlette.sse import EventSourceResponse
 from backend.config import settings
 from backend.pipelines.ingest import process_document
 from backend.db.sqlite import SessionLocal, UploadedFile
+from backend.api.websocket import manager
 
 router = APIRouter(prefix="/api/sessions", tags=["upload"])
 
@@ -34,6 +36,15 @@ async def _ingest_background(session_id: str, file_path: str, filename: str):
                 db_file.chunk_count = results.get("text_chunks", 0)
                 db_file.table_count = results.get("tables_processed", 0)
                 db.commit()
+                
+                # notify via websocket
+                await manager.broadcast_to_session(session_id, {
+                    "type": "ingestion_complete",
+                    "filename": filename,
+                    "status": "completed",
+                    "chunk_count": db_file.chunk_count,
+                    "table_count": db_file.table_count
+                })
         finally:
             db.close()
             
@@ -42,23 +53,41 @@ async def _ingest_background(session_id: str, file_path: str, filename: str):
         print(f"Ingestion failed for {filename}: {e}")
 
 @router.post("/{session_id}/upload")
-async def upload_files(session_id: str, background_tasks: BackgroundTasks, files: list[UploadFile] = File(...)):
+async def upload_files(
+    session_id: str, 
+    background_tasks: BackgroundTasks, 
+    files: list[UploadFile] = File(...), 
+    descriptions: list[str] = Form(None)
+):
     uploaded_info = []
     
     db = SessionLocal()
     try:
-        for file in files:
+        for i, file in enumerate(files):
+            # Description mapping: if we have more files than descriptions, fallback to None
+            desc = descriptions[i] if descriptions and i < len(descriptions) else None
+            
             file_path = os.path.join(settings.UPLOAD_DIR, f"{session_id}_{file.filename}")
             
             with open(file_path, "wb") as f:
                 content = await file.read()
                 f.write(content)
                 
-            db_file = UploadedFile(session_id=session_id, filename=file.filename, status="processing")
+            db_file = UploadedFile(
+                session_id=session_id, 
+                filename=file.filename, 
+                description=desc,
+                status="processing"
+            )
             db.add(db_file)
             db.commit()
             
-            uploaded_info.append({"name": file.filename, "status": "processing"})
+            uploaded_info.append({"filename": file.filename, "status": "processing"})
+            
+            # Queue ingestion
+            if session_id not in progress_tracker:
+                progress_tracker[session_id] = {}
+            progress_tracker[session_id][file.filename] = "processing"
             
             # Queue ingestion
             background_tasks.add_task(_ingest_background, session_id, file_path, file.filename)
@@ -73,13 +102,15 @@ async def get_upload_progress(session_id: str):
     async def event_generator():
         while True:
             if session_id in progress_tracker:
-                yield {"data": str(progress_tracker[session_id])}
+                yield {"data": json.dumps(progress_tracker[session_id])}
+            else:
+                yield {"data": json.dumps({})}
             
             # Stop condition if all are completed or failed
             if session_id in progress_tracker:
                 all_done = all(v != "processing" for v in progress_tracker[session_id].values())
                 if all_done:
-                    yield {"data": str(progress_tracker[session_id])}
+                    yield {"data": json.dumps(progress_tracker[session_id])}
                     break
                     
             await asyncio.sleep(1)

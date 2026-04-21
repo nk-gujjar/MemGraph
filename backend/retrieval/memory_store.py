@@ -1,4 +1,4 @@
-from backend.db.sqlite import SessionLocal, EventMemory
+from backend.db.sqlite import SessionLocal, EventMemory, ChatMessage, GlobalKnowledge
 from backend.retrieval.vector_store import vstore
 from backend.retrieval.kg_store import kg_store
 import cohere
@@ -7,23 +7,44 @@ import json
 
 class MemoryStore:
     def __init__(self):
-        # In-memory circular buffer for last 6 messages
-        self.short_term_memory = {}
         self.cohere_client = cohere.Client(api_key=settings.COHERE_API_KEY)
 
-    # --- Short Term Memory ---
+    # --- Persistent Chat History ---
     def add_message(self, session_id: str, role: str, content: str):
-        if session_id not in self.short_term_memory:
-            self.short_term_memory[session_id] = []
-        
-        self.short_term_memory[session_id].append({"role": role, "content": content})
-        
-        # Keep last 6 messages max
-        if len(self.short_term_memory[session_id]) > 6:
-            self.short_term_memory[session_id] = self.short_term_memory[session_id][-6:]
+        db = SessionLocal()
+        try:
+            msg = ChatMessage(session_id=session_id, role=role, content=content)
+            db.add(msg)
+            db.commit()
+        finally:
+            db.close()
 
-    def get_last_messages(self, session_id: str) -> list:
-        return self.short_term_memory.get(session_id, [])
+    def get_last_messages(self, session_id: str, limit: int = 10) -> list:
+        db = SessionLocal()
+        try:
+            msgs = db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.timestamp.desc()).limit(limit).all()
+            # Return in chronological order
+            return [{"role": m.role, "content": m.content} for m in reversed(msgs)]
+        finally:
+            db.close()
+
+    # --- Global Knowledge (Cross-Session) ---
+    def add_global_knowledge(self, knowledge_type: str, content: str):
+        db = SessionLocal()
+        try:
+            kn = GlobalKnowledge(type=knowledge_type, content=content)
+            db.add(kn)
+            db.commit()
+        finally:
+            db.close()
+
+    def get_all_global_knowledge(self) -> list[dict]:
+        db = SessionLocal()
+        try:
+            kn = db.query(GlobalKnowledge).all()
+            return [{"type": k.type, "content": k.content} for k in kn]
+        finally:
+            db.close()
 
     # --- Long Term Memory (using vstore with 'memory' namespace) ---
     def add_long_term_memory(self, session_id: str, content: str):
@@ -35,13 +56,22 @@ class MemoryStore:
         )
 
     def search_long_term_memory(self, session_id: str, query: str, top_k: int = 4):
+        # Latency optimization: skip if no memory exists for this session
+        db = SessionLocal()
+        from backend.db.sqlite import ChunkMetadata
+        try:
+            has_mem = db.query(ChunkMetadata).filter(ChunkMetadata.session_id == session_id, ChunkMetadata.filename == "__memory__").first()
+            if not has_mem:
+                return []
+        finally:
+            db.close()
+            
         # Retrieve text chunks and filter for __memory__
-        # Using top_k * 5 inside vstore gives us enough buffer, we just need to filter here.
         all_results = vstore.search_text(session_id, query, top_k=top_k*5)
         memory_results = [r for r in all_results if r["filename"] == "__memory__"]
         return memory_results[:top_k]
 
-    # --- Event Memory ---
+    # --- Event Memory (Session Specific) ---
     def add_event_memory(self, session_id: str, event_type: str, content: str):
         db = SessionLocal()
         try:
@@ -61,19 +91,15 @@ class MemoryStore:
 
     # --- KG Triples Extraction & Query ---
     def extract_and_query_kg(self, session_id: str, query: str) -> list[dict]:
-        # Extract named entities
-        prompt = f"Extract named entities from the following text and return as a JSON array of strings: {query}"
+        # Extract named entities from the query to find relevant KG fragments
+        prompt = f"Extract named entities (people, models, organizations, concepts) from the following query and return as a JSON array of strings: {query}"
         try:
             response = self.cohere_client.chat(
                 message=prompt,
                 model=settings.CHAT_MODEL_FAST
             )
             
-            # Very basic extraction parsing
-            import json
             import re
-            
-            # Find json array
             match = re.search(r'\[(.*?)\]', response.text, re.DOTALL)
             entities = []
             if match:

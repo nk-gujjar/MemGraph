@@ -18,9 +18,12 @@ export const api = {
     if (!res.ok) throw new Error('Failed to delete session')
   },
 
-  uploadFiles: async (sessionId: string, files: File[]): Promise<{ files: UploadedFile[] }> => {
+  uploadFiles: async (sessionId: string, files: File[], descriptions?: string[]): Promise<{ files: UploadedFile[] }> => {
     const formData = new FormData()
     files.forEach(f => formData.append('files', f))
+    if (descriptions) {
+      descriptions.forEach(d => formData.append('descriptions', d))
+    }
     
     const res = await fetch(`/api/sessions/${sessionId}/upload`, {
       method: 'POST',
@@ -33,6 +36,12 @@ export const api = {
   getSources: async (sessionId: string): Promise<UploadedFile[]> => {
     const res = await fetch(`/api/sessions/${sessionId}/sources`)
     if (!res.ok) throw new Error('Failed to get sources')
+    return res.json()
+  },
+
+  getMessages: async (sessionId: string): Promise<any[]> => {
+    const res = await fetch(`/api/sessions/${sessionId}/messages`)
+    if (!res.ok) throw new Error('Failed to get messages')
     return res.json()
   }
 }
