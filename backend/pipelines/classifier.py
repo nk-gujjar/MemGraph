@@ -26,7 +26,7 @@ OUTPUT:
 Respond ONLY with a JSON object in this format: {{"strategy": "recursive" | "page" | "subsection", "reason": "brief reason"}}
 """
         try:
-            response = self.cohere_client.chat(
+            response = llm_client.chat(
                 message=prompt,
                 model=settings.CHAT_MODEL_FAST
             )

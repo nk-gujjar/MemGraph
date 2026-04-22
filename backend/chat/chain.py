@@ -1,7 +1,5 @@
-from langchain_cohere import ChatCohere
-from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
-from langchain_core.messages import SystemMessage, HumanMessage
 from backend.config import settings
+from backend.llm_config import llm_client
 
 system_prompt = """You are MemGraph, an intelligent document assistant. You have access to the user's uploaded documents, tables, conversation history, and a knowledge graph of facts.
 
@@ -11,7 +9,7 @@ RULES:
  3. For follow-up questions, use recent conversation context. However, prioritze the user's immediate latest question.
  4. For simple greetings (like "hi" or "hello"), respond naturally and briefly. Do NOT repeat previous summaries unless asked.
  5. If information is not in the context, say so clearly — do not hallucinate.
- 6. Be concise. Use markdown formatting (headers, bullets, bold) when it improves clarity.
+ 6. Be concise. Use markdown formatting (headers, bullets, bold) such as headers, bullets, and bold when it improves clarity.
  7. For summarization, provide structured summaries with key points.
 
 Context:
@@ -20,11 +18,21 @@ Context:
 
 class ChatChain:
     def __init__(self):
-        self.llm = ChatCohere(
-            cohere_api_key=settings.COHERE_API_KEY,
-            model=settings.CHAT_MODEL_QUALITY,
-            streaming=True
-        )
+        model = settings.CHAT_MODEL_QUALITY
+        if llm_client.is_groq_model(model):
+            from langchain_groq import ChatGroq
+            self.llm = ChatGroq(
+                groq_api_key=settings.GROQ_API_KEY,
+                model_name=model,
+                streaming=True
+            )
+        else:
+            from langchain_cohere import ChatCohere
+            self.llm = ChatCohere(
+                cohere_api_key=settings.COHERE_API_KEY,
+                model=model,
+                streaming=True
+            )
         
     async def stream_response(self, query: str, context: str, parent_trace=None):
         prompt = [

@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 
 import cohere
 from backend.config import settings
+from backend.llm_config import llm_client
 
 
 JUDGE_PROMPT = """You are an expert evaluator for RAG (Retrieval-Augmented Generation) systems.
@@ -100,7 +101,7 @@ class LLMJudge:
         )
 
         try:
-            res = self._client.chat(
+            res = llm_client.chat(
                 message=prompt,
                 model=settings.CHAT_MODEL_FAST,
             )

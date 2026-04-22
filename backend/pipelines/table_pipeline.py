@@ -33,8 +33,8 @@ class TablePipeline:
             summary_prompt = prompt_template.format(table_markdown=raw_markdown)
             
             try:
-                # Need to use command-r-plus to summarize
-                response = self.cohere_client.chat(
+                # Use quality model for summarization
+                response = llm_client.chat(
                     message=summary_prompt,
                     model=settings.CHAT_MODEL_QUALITY
                 )

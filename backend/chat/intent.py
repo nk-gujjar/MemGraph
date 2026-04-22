@@ -1,5 +1,6 @@
 import cohere
 from backend.config import settings
+from backend.llm_config import llm_client
 
 intent_prompt = """
 Classify the user query into exactly one intent:
@@ -40,7 +41,7 @@ class IntentDetector:
             )
 
         try:
-            response = self.cohere_client.chat(
+            response = llm_client.chat(
                 message=intent_prompt.format(query=query),
                 model=settings.CHAT_MODEL_FAST
             )

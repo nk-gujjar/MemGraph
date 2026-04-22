@@ -6,6 +6,8 @@ langchain
 langchain-cohere
 langchain-text-splitters
 cohere
+groq
+langchain-groq
 faiss-cpu
 networkx
 langfuse

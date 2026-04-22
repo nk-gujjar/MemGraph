@@ -84,10 +84,10 @@ async def process_document(session_id: str, file_path: str, filename: str):
     tasks.append(asyncio.to_thread(text_pipeline.process, session_id, filename, text_elements, strategy))
     tasks.append(asyncio.to_thread(table_pipeline.process, session_id, filename, table_elements))
     
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    results = await asyncio.gather(*tasks, return_exceptions=False)
     
-    text_count = results[0] if not isinstance(results[0], Exception) else 0
-    table_count = results[1] if not isinstance(results[1], Exception) else 0
+    text_count = results[0]
+    table_count = results[1]
     
     latency_ms = (time.time() - start_time) * 1000
     

@@ -24,8 +24,8 @@ class TradSettings(BaseSettings):
     UPLOAD_DIR: str = "./uploads"          # shared upload folder, read-only
 
     # Models (same as MemGraph for fair comparison)
-    CHAT_MODEL_FAST: str = "command-r-08-2024"
-    CHAT_MODEL_QUALITY: str = "command-r-plus-08-2024"
+    CHAT_MODEL_FAST: str = "llama-3.1-8b-instant"
+    CHAT_MODEL_QUALITY: str = "llama-3.3-70b-versatile"
     EMBEDDING_MODEL: str = "embed-english-v3.0"
 
     MAX_UPLOAD_SIZE_MB: int = 50
