@@ -203,7 +203,6 @@ async def _handle_chat(websocket: WebSocket, session_id: str):
 
                 # ── 9. Write JSONL log ───────────────────────────────────────
                 # Start the judge concurrently with memory summarization
-                # (user already got response, we run both and await together)
                 judge_task = asyncio.create_task(evaluate_async(
                     query_id=qlog.query_id,
                     session_id=session_id,
@@ -229,12 +228,10 @@ async def _handle_chat(websocket: WebSocket, session_id: str):
                     judge=judge_scores if isinstance(judge_scores, dict) else None
                 )
 
-                # ── 11. Trigger memory summarization (fire & forget) ──────────
-                asyncio.create_task(
-                    asyncio.to_thread(trad_memory.maybe_summarize, session_id)
-                )
+                # 10. Memory summarization check
+                asyncio.create_task(asyncio.to_thread(trad_memory.maybe_summarize, session_id))
 
-                # ── 12. Wire protocol (same as MemGraph for easy comparison) ─
+                # ── 11. Wire protocol sync ───────────────────────────────────
                 await websocket.send_json({
                     "type": "source",
                     "content": json.dumps([

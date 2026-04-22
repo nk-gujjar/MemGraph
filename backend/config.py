@@ -18,8 +18,8 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./uploads"
 
     # Models
-    CHAT_MODEL_FAST: str = "llama-3.1-8b-instant"
-    CHAT_MODEL_QUALITY: str = "llama-3.3-70b-versatile"
+    CHAT_MODEL_FAST: str = "command-r-08-2024"
+    CHAT_MODEL_QUALITY: str = "command-r-plus-08-2024"
     EMBEDDING_MODEL: str = "embed-english-v3.0"
     
     MAX_UPLOAD_SIZE_MB: int = 50

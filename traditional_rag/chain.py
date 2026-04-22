@@ -38,6 +38,27 @@ class TradChain:
             streaming=True,
         )
 
+    async def generate_response(
+        self,
+        query: str,
+        memory_context: str,
+        doc_context: str,
+    ) -> str:
+        """Non-streaming version of generation for internal evaluation."""
+        system_content = SYSTEM_PROMPT.format(
+            memory_context=memory_context,
+            doc_context=doc_context,
+        )
+        messages = [
+            SystemMessage(content=system_content),
+            HumanMessage(content=query),
+        ]
+        full_response = ""
+        async for chunk in self.llm.astream(messages):
+            if chunk.content:
+                full_response += chunk.content
+        return full_response
+
     async def stream_response(
         self,
         query: str,

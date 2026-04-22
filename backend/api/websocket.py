@@ -75,142 +75,154 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
             qlog = QueryLogger(session_id=session_id, approach="memgraph", query=query)
 
             try:
-                # 1. Intent Detection
-                print("Detecting intent...")
-                intent_span = qlog.start_span("intent_detection")
-                intent = await asyncio.to_thread(intent_detector.detect, session_id, query, parent_trace=trace)
-                print(f"Detected intent: {intent}")
-                qlog.add_span(intent_span.finish(
-                    model=settings.CHAT_MODEL_FAST,
-                    result=intent
-                ))
+                # ITERATIVE RAG LOOP
+                MAX_RETRIES = 2
+                MIN_SCORE_THRESHOLD = 7
+                
+                final_full_response = ""
+                final_context_str = ""
+                final_sources = []
+                final_intent = "rag"
+                final_input_tokens = 0
+                final_output_tokens = 0
+                final_judge_scores = None
 
-                # 2. Add to memory (short term)
-                memory_store.add_message(session_id, "user", query)
+                for attempt in range(MAX_RETRIES + 1):
+                    is_last_attempt = (attempt == MAX_RETRIES)
+                    if attempt > 0:
+                        print(f"[WS] Attempt {attempt+1} for session {session_id}...")
+                        await websocket.send_json({"type": "token", "content": f"\n\n*(Self-Correction: Attempt {attempt+1} due to low quality score...)*\n\n"})
 
-                # 3. Retrieve
-                print(f"Retrieving context for query: '{query}'...")
-                retrieval_span = qlog.start_span("retrieval")
-                retrieval_result = await retrieve(query, session_id, intent, parent_trace=trace)
-                source_labels = [
-                    f"{s.get('filename', '?')} p{s.get('page_number', '?')}"
-                    for s in []
-                ]
+                    # 1. Intent Detection
+                    print("Detecting intent...")
+                    intent_span = qlog.start_span(f"intent_detection_a{attempt}")
+                    intent = await asyncio.to_thread(intent_detector.detect, session_id, query, parent_trace=trace)
+                    final_intent = intent
+                    print(f"Detected intent: {intent}")
+                    qlog.add_span(intent_span.finish(model=settings.CHAT_MODEL_FAST, result=intent))
 
-                # 4. Context Build
-                context_str, sources = context_builder.build(retrieval_result)
-                source_labels = [
-                    f"{s.get('filename', '?')} p{s.get('page_number', '?')}"
-                    for s in sources
-                ]
-                print(f"Total contextual items retrieved: {len(retrieval_result.items)}")
-                print(f"Retrieved {len(sources)} sources (PDF/Table chunks).")
+                    # 2. Add to memory (only on first attempt to avoid duplication)
+                    if attempt == 0:
+                        memory_store.add_message(session_id, "user", query)
 
-                # Confidence score — computed from retrieval, no LLM call
-                confidence = compute_confidence_from_memgraph_result(retrieval_result.items)
+                    # 3. Retrieve
+                    print(f"Retrieving context (Attempt {attempt+1})...")
+                    retrieval_span = qlog.start_span(f"retrieval_a{attempt}")
+                    retrieval_result = await retrieve(query, session_id, intent, parent_trace=trace)
+                    
+                    # 4. Context Build
+                    context_str, sources = context_builder.build(retrieval_result)
+                    final_context_str = context_str
+                    final_sources = sources
+                    source_labels = [f"{s.get('filename', '?')} p{s.get('page_number', '?')}" for s in sources]
+                    
+                    # Confidence score
+                    confidence = compute_confidence_from_memgraph_result(retrieval_result.items)
+                    qlog.add_span(retrieval_span.finish(
+                        chunks_returned=len(retrieval_result.items),
+                        sources=source_labels,
+                        confidence=confidence["combined"]
+                    ))
 
-                qlog.add_span(retrieval_span.finish(
-                    chunks_returned=len(retrieval_result.items),
-                    sources=source_labels,
-                    confidence=confidence["combined"]
-                ))
-
-                # 5. Stream LLM
-                print("Streaming response...")
-
-                # Tiny delay to ensure frontend state is synced (prevents ghosting)
-                await asyncio.sleep(0.05)
-
-                full_response = ""
-                llm_span = qlog.start_span("llm_generation")
-                async for token in chat_chain.stream_response(query, context_str, parent_trace=trace):
-                    full_response += token
-                    await websocket.send_json({"type": "token", "content": token})
+                    # 5. Generate Internal Response for Judging
+                    if not is_last_attempt:
+                        print(f"Evaluating quality for Attempt {attempt+1}...")
+                        await websocket.send_json({"type": "token", "content": "*(Thinking and verifying quality...)* "})
+                        
+                        full_response = await chat_chain.generate_response(query, context_str, parent_trace=trace)
+                        
+                        # Judge it Synchronously (to decide whether to retry)
+                        judge_scores = await evaluate_async(
+                            query_id=qlog.query_id,
+                            session_id=session_id,
+                            approach="memgraph",
+                            query=query,
+                            context=context_str,
+                            response=full_response
+                        )
+                        final_judge_scores = judge_scores
+                        
+                        if judge_scores.get("overall", 0) >= MIN_SCORE_THRESHOLD:
+                            print(f"Quality threshold met ({judge_scores['overall']}/10). Proceeding to stream.")
+                            final_full_response = full_response
+                            break
+                        else:
+                            print(f"Quality too low ({judge_scores['overall']}/10). Retrying retrieval...")
+                    else:
+                        # Last attempt: Stream directly to user
+                        print("Final attempt or threshold met. Streaming to user...")
+                        
+                        # Clear previous "Thinking..." tokens if any? 
+                        # Actually just stream normally.
+                        
+                        full_response = ""
+                        llm_span = qlog.start_span("llm_generation_final")
+                        async for token in chat_chain.stream_response(query, context_str, parent_trace=trace):
+                            full_response += token
+                            await websocket.send_json({"type": "token", "content": token})
+                        
+                        final_full_response = full_response
+                        
+                        # Final Judge (async)
+                        judge_task = asyncio.create_task(evaluate_async(
+                            query_id=qlog.query_id,
+                            session_id=session_id,
+                            approach="memgraph",
+                            query=query,
+                            context=context_str,
+                            response=full_response
+                        ))
+                        final_judge_scores = await judge_task
+                        break
 
                 # 6. Memory Store assistant response
-                memory_store.add_message(session_id, "assistant", full_response)
+                memory_store.add_message(session_id, "assistant", final_full_response)
 
                 # 7. Trace and Token Stats
                 latency_ms = (time.time() - start_time) * 1000
-
-                # Get exact token counts for DB sync
-                full_prompt = f"Context: {context_str}\nUser: {query}"
+                full_prompt = f"Context: {final_context_str}\nUser: {query}"
+                
                 try:
-                    input_tokens_res = await asyncio.to_thread(
-                        post_processor.cohere_client.tokenize,
-                        text=full_prompt,
-                        model=settings.CHAT_MODEL_QUALITY
-                    )
+                    input_tokens_res = await asyncio.to_thread(post_processor.cohere_client.tokenize, text=full_prompt, model=settings.CHAT_MODEL_QUALITY)
                     input_tokens = len(input_tokens_res.tokens)
-
-                    output_tokens_res = await asyncio.to_thread(
-                        post_processor.cohere_client.tokenize,
-                        text=full_response,
-                        model=settings.CHAT_MODEL_QUALITY
-                    )
+                    output_tokens_res = await asyncio.to_thread(post_processor.cohere_client.tokenize, text=final_full_response, model=settings.CHAT_MODEL_QUALITY)
                     output_tokens = len(output_tokens_res.tokens)
                 except Exception as e:
                     print(f"Tokenization failed: {e}")
                     input_tokens = len(full_prompt) // 4
-                    output_tokens = len(full_response) // 4
-
-                qlog.add_span(llm_span.finish(
-                    model=settings.CHAT_MODEL_QUALITY,
-                    tokens={"input": input_tokens, "output": output_tokens}
-                ))
+                    output_tokens = len(final_full_response) // 4
+                
+                final_input_tokens = input_tokens
+                final_output_tokens = output_tokens
 
                 # OBSERVE: Finalize Langfuse Trace
                 if trace:
                     trace.update(
-                        output=full_response,
-                        metadata={
-                            "intent": intent,
-                            "latency_ms": latency_ms,
-                            "sources_count": len(sources)
-                        },
+                        output=final_full_response,
+                        metadata={"intent": final_intent, "latency_ms": latency_ms, "sources_count": len(final_sources), "retries": attempt},
                         usage={"input": input_tokens, "output": output_tokens}
                     )
 
-                # LOG + LLM-as-Judge:
-                # Response already streamed to user — now run judge concurrently
-                # with post-processing. Await the score before writing the log
-                # so everything lands in ONE record (no latency impact for user).
-                judge_task = asyncio.create_task(
-                    evaluate_async(
-                        query_id=qlog.query_id,
-                        session_id=session_id,
-                        approach="memgraph",
-                        query=query,
-                        context=context_str,
-                        response=full_response
-                    )
-                )
-
-                # 8. Post Processing (fire and forget) + await judge together
-                judge_scores, _ = await asyncio.gather(
-                    judge_task,
-                    post_processor.process(session_id, query, full_response, input_tokens, output_tokens),
-                    return_exceptions=True
-                )
-
-                # Write single complete log record (response + judge in one line)
+                # 8. Post Processing & Log Write
+                await post_processor.process(session_id, query, final_full_response, input_tokens, output_tokens)
+                
+                source_labels = [f"{s.get('filename', '?')} p{s.get('page_number', '?')}" for s in final_sources]
                 qlog.write(
-                    output=full_response,
+                    output=final_full_response,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
                     sources=source_labels,
                     confidence=confidence,
-                    judge=judge_scores if isinstance(judge_scores, dict) else None
+                    judge=final_judge_scores
                 )
 
                 # 9. Send sources
-                await websocket.send_json({"type": "source", "content": json.dumps(sources)})
+                await websocket.send_json({"type": "source", "content": json.dumps(final_sources)})
 
                 # 10. Done and Sync Stats
-                print(f"Response completed in {(time.time() - start_time):.2f}s")
+                print(f"Response completed in {(time.time() - start_time):.2f}s (Attempts: {attempt+1})")
                 await websocket.send_json({"type": "done", "content": ""})
 
-                # Send updated stats to frontend for real-time UI sync
                 await websocket.send_json({
                     "type": "stats",
                     "session_id": session_id,

@@ -1,3 +1,5 @@
+import asyncio
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from backend.config import settings
 from backend.llm_config import llm_client
 
@@ -34,6 +36,20 @@ class ChatChain:
                 streaming=True
             )
         
+    async def generate_response(self, query: str, context: str, parent_trace=None) -> str:
+        """Non-streaming version of generation for internal evaluation."""
+        prompt = [
+            SystemMessage(content=system_prompt.format(context=context)),
+            HumanMessage(content=query)
+        ]
+        
+        # We use astream even for full response to keep logic consistent or just ainvoke
+        full_response = ""
+        async for chunk in self.llm.astream(prompt):
+            if chunk.content:
+                full_response += chunk.content
+        return full_response
+
     async def stream_response(self, query: str, context: str, parent_trace=None):
         prompt = [
             SystemMessage(content=system_prompt.format(context=context)),
