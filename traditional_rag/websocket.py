@@ -29,9 +29,10 @@ from backend.observability.log_writer import QueryLogger  # shared log writer
 from backend.observability.langfuse_client import lf_client  # shared Langfuse
 from backend.observability.confidence import compute_confidence
 from backend.observability.llm_judge import evaluate_async
+from backend.llm_config import llm_client
 
 router = APIRouter(tags=["trad-websocket"])
-_cohere_client = cohere.Client(api_key=trad_settings.COHERE_API_KEY)
+_cohere_client = llm_client.cohere
 
 
 # ── Connection Manager (mirrors MemGraph's) ───────────────────────────────────

@@ -1,13 +1,13 @@
 import inspect
-import cohere
 from backend.config import settings
 from backend.retrieval.vector_store import vstore
+from backend.llm_config import llm_client
 
 prompt_template = "Summarize this table concisely, capturing all key data, column names, and notable values:\n\n{table_markdown}"
 
 class TablePipeline:
     def __init__(self):
-        self.cohere_client = cohere.Client(api_key=settings.COHERE_API_KEY)
+        self.cohere_client = llm_client.cohere
 
     def process(self, session_id: str, filename: str, elements: list) -> int:
         """

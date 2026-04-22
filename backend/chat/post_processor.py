@@ -2,15 +2,15 @@ import asyncio
 import copy
 import re
 import json
-import cohere
 from backend.config import settings
 from backend.db.sqlite import SessionLocal, Session
 from backend.retrieval.memory_store import memory_store
 from backend.retrieval.kg_store import kg_store
+from backend.llm_config import llm_client
 
 class PostProcessor:
     def __init__(self):
-        self.cohere_client = cohere.Client(api_key=settings.COHERE_API_KEY)
+        self.cohere_client = llm_client.cohere
 
     async def process(self, session_id: str, query: str, response: str, input_tokens: int = 0, output_tokens: int = 0):
         # Fire and forget tasks

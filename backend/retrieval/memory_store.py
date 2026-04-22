@@ -5,9 +5,11 @@ import cohere
 from backend.config import settings
 import json
 
+from backend.llm_config import llm_client
+
 class MemoryStore:
     def __init__(self):
-        self.cohere_client = cohere.Client(api_key=settings.COHERE_API_KEY)
+        self.cohere_client = llm_client.cohere
 
     # --- Persistent Chat History ---
     def add_message(self, session_id: str, role: str, content: str):

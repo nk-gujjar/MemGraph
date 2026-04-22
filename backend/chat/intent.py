@@ -16,7 +16,7 @@ Query: {query}
 
 class IntentDetector:
     def __init__(self):
-        self.cohere_client = cohere.Client(api_key=settings.COHERE_API_KEY)
+        self.cohere_client = llm_client.cohere
         self.cache = {}
 
     def detect(self, session_id: str, query: str, parent_trace=None) -> str:

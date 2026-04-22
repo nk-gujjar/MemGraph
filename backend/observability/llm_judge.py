@@ -69,7 +69,7 @@ Return ONLY valid JSON in this exact format, no other text:
 
 class LLMJudge:
     def __init__(self):
-        self._client = cohere.Client(api_key=settings.COHERE_API_KEY)
+        self._client = llm_client.cohere
 
     def evaluate(
         self,

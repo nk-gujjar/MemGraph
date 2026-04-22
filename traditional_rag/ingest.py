@@ -26,56 +26,62 @@ async def trad_ingest(session_id: str, file_path: str, filename: str) -> dict:
       1. Partition with unstructured (fast strategy)
       2. Strip tables — text only for traditional RAG
       3. Recursive character splitting
-      4. Embed + store in trad FAISS + trad SQLite
+      4. Embed + store in trad FAISS + trad SQLite (with rate-limiting)
 
     Returns: { "chunks": int, "latency_ms": float }
     """
     start = time.time()
     print(f"\n[TradIngest] Starting ingestion: {filename} (session={session_id})")
 
-    # 1. Partition
-    elements = await asyncio.to_thread(
-        partition, file_path, strategy="fast"
-    )
-    print(f"[TradIngest] Partitioned into {len(elements)} elements.")
+    try:
+        # 1. Partition
+        elements = await asyncio.to_thread(
+            partition, file_path, strategy="fast"
+        )
+        print(f"[TradIngest] Partitioned into {len(elements)} elements.")
 
-    # 2. Extract text elements only (skip tables for simplicity)
-    text_elements = [
-        el for el in elements
-        if not isinstance(el, UnstructuredTable)
-        and not (hasattr(el, "metadata") and getattr(el.metadata, "text_as_html", None))
-    ]
+        # 2. Extract text elements only (skip tables for simplicity)
+        text_elements = [
+            el for el in elements
+            if not isinstance(el, UnstructuredTable)
+            and not (hasattr(el, "metadata") and getattr(el.metadata, "text_as_html", None))
+        ]
 
-    full_text = "\n\n".join([str(el) for el in text_elements if str(el).strip()])
+        full_text = "\n\n".join([str(el) for el in text_elements if str(el).strip()])
 
-    if not full_text.strip():
-        print("[TradIngest] No text content found.")
-        _update_status(session_id, filename, "no_content", 0)
-        return {"chunks": 0, "latency_ms": 0}
+        if not full_text.strip():
+            print("[TradIngest] No text content found.")
+            _update_status(session_id, filename, "no_content", 0)
+            return {"chunks": 0, "latency_ms": 0}
 
-    # 3. Recursive chunking
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=trad_settings.CHUNK_SIZE,
-        chunk_overlap=trad_settings.CHUNK_OVERLAP,
-    )
-    chunks = splitter.split_text(full_text)
-    print(f"[TradIngest] Created {len(chunks)} chunks via recursive splitting.")
+        # 3. Recursive chunking
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=trad_settings.CHUNK_SIZE,
+            chunk_overlap=trad_settings.CHUNK_OVERLAP,
+        )
+        chunks = splitter.split_text(full_text)
+        print(f"[TradIngest] Created {len(chunks)} chunks via recursive splitting.")
 
-    # 4. Build metadata — page_number isn't reliable without by_page strategy
-    texts = chunks
-    metadatas = [
-        {"filename": filename, "page_number": None, "chunk_index": i}
-        for i in range(len(chunks))
-    ]
+        # 4. Build metadata
+        texts = chunks
+        metadatas = [
+            {"filename": filename, "page_number": None, "chunk_index": i}
+            for i in range(len(chunks))
+        ]
 
-    # 5. Embed + store (run in thread since it's synchronous I/O + network)
-    await asyncio.to_thread(trad_vstore.add_texts, session_id, texts, metadatas)
+        # 5. Embed + store (with rate-limiting)
+        await asyncio.to_thread(trad_vstore.add_texts, session_id, texts, metadatas)
 
-    latency_ms = (time.time() - start) * 1000
-    print(f"[TradIngest] Done — {len(chunks)} chunks in {latency_ms:.1f}ms")
+        latency_ms = (time.time() - start) * 1000
+        print(f"[TradIngest] Done — {len(chunks)} chunks in {latency_ms:.1f}ms")
 
-    _update_status(session_id, filename, "completed", len(chunks))
-    return {"chunks": len(chunks), "latency_ms": round(latency_ms, 2)}
+        _update_status(session_id, filename, "completed", len(chunks))
+        return {"chunks": len(chunks), "latency_ms": round(latency_ms, 2)}
+
+    except Exception as e:
+        print(f"[TradIngest] CRITICAL FAILURE for {filename}: {e}")
+        _update_status(session_id, filename, f"failed: {str(e)}", 0)
+        raise e
 
 
 def _update_status(session_id: str, filename: str, status: str, chunk_count: int):

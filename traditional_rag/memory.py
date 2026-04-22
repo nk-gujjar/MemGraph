@@ -18,9 +18,11 @@ from traditional_rag.config import trad_settings
 from traditional_rag.db import TradSessionLocal, TradChatMessage, TradChatSummary
 
 
+from backend.llm_config import llm_client
+
 class TradMemory:
     def __init__(self):
-        self.cohere_client = cohere.Client(api_key=trad_settings.COHERE_API_KEY)
+        self.cohere_client = llm_client.cohere
 
     # ── Message persistence ───────────────────────────────────────────────────
 

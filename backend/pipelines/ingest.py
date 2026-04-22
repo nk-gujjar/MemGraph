@@ -33,7 +33,9 @@ async def process_document(session_id: str, file_path: str, filename: str):
     else:
         print(f"Description provided: '{description}'. Extracting preview for classification...")
         # Quick partition without chunking just to get first few elements
-        preview_elements = partition(filename=file_path, strategy="fast")
+        preview_elements = await asyncio.to_thread(
+            partition, filename=file_path, strategy="fast"
+        )
         preview_text = "\n".join([str(el) for el in preview_elements[:10]])
         
         strategy = strategy_classifier.classify(preview_text, description)
@@ -46,7 +48,8 @@ async def process_document(session_id: str, file_path: str, filename: str):
     # If recursive or page, we'll do partitioning first then custom chunking in text_pipeline
     
     if strategy == "subsection":
-        elements = partition(
+        elements = await asyncio.to_thread(
+            partition,
             filename=file_path,
             chunking_strategy="by_title",
             max_characters=1000,
@@ -55,7 +58,7 @@ async def process_document(session_id: str, file_path: str, filename: str):
         )
     else:
         # Standard partition, let text_pipeline handle chunking
-        elements = partition(filename=file_path)
+        elements = await asyncio.to_thread(partition, filename=file_path)
         
     print(f"Parsed {len(elements)} elements.")
     
