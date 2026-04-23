@@ -24,6 +24,7 @@ export const useChat = (sessionId: string | null) => {
 
       ws.onopen = () => {
         setIsConnected(true)
+        setIsStreaming(false) // Ensure UI is unlocked on connect
       }
 
       ws.onmessage = (event) => {

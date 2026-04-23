@@ -89,17 +89,17 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
                 for attempt in range(MAX_RETRIES + 1):
                     is_last_attempt = (attempt == MAX_RETRIES)
-                    if attempt > 0:
+                    # 1. Intent Detection (only on first attempt)
+                    if attempt == 0:
+                        print("Detecting intent...")
+                        intent_span = qlog.start_span("intent_detection")
+                        intent = await asyncio.to_thread(intent_detector.detect, session_id, query, parent_trace=trace)
+                        final_intent = intent
+                        print(f"Detected intent: {intent}")
+                        qlog.add_span(intent_span.finish(model=settings.CHAT_MODEL_FAST, result=intent))
+                    else:
                         print(f"[WS] Attempt {attempt+1} for session {session_id}...")
                         await websocket.send_json({"type": "token", "content": f"\n\n*(Self-Correction: Attempt {attempt+1} due to low quality score...)*\n\n"})
-
-                    # 1. Intent Detection
-                    print("Detecting intent...")
-                    intent_span = qlog.start_span(f"intent_detection_a{attempt}")
-                    intent = await asyncio.to_thread(intent_detector.detect, session_id, query, parent_trace=trace)
-                    final_intent = intent
-                    print(f"Detected intent: {intent}")
-                    qlog.add_span(intent_span.finish(model=settings.CHAT_MODEL_FAST, result=intent))
 
                     # 2. Add to memory (only on first attempt to avoid duplication)
                     if attempt == 0:
@@ -125,9 +125,9 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                     ))
 
                     # 5. Generate Internal Response for Judging
-                    if not is_last_attempt:
+                    if not is_last_attempt and intent != "chat":
                         print(f"Evaluating quality for Attempt {attempt+1}...")
-                        await websocket.send_json({"type": "token", "content": "*(Thinking and verifying quality...)* "})
+                        # Removed thinking message as per user request
                         
                         full_response = await chat_chain.generate_response(query, context_str, parent_trace=trace)
                         
@@ -143,14 +143,27 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                         final_judge_scores = judge_scores
                         
                         if judge_scores.get("overall", 0) >= MIN_SCORE_THRESHOLD:
-                            print(f"Quality threshold met ({judge_scores['overall']}/10). Proceeding to stream.")
+                            print(f"Quality threshold met ({judge_scores['overall']}/10). Sending response.")
                             final_full_response = full_response
+                            
+                            # Chunk the pre-generated response for better frontend handling
+                            CHUNK_SIZE = 50
+                            for i in range(0, len(full_response), CHUNK_SIZE):
+                                chunk = full_response[i:i+CHUNK_SIZE]
+                                await websocket.send_json({"type": "token", "content": chunk})
+                                await asyncio.sleep(0.01)
+                            
                             break
                         else:
                             print(f"Quality too low ({judge_scores['overall']}/10). Retrying retrieval...")
+                            # Send a small hint to the user that we are retrying
+                            await websocket.send_json({"type": "token", "content": "*(Refining search...)* "})
                     else:
-                        # Last attempt: Stream directly to user
-                        print("Final attempt or threshold met. Streaming to user...")
+                        # Case: Last attempt OR intent is 'chat'
+                        if intent == "chat":
+                            print("Directly streaming chat response...")
+                        else:
+                            print("Final attempt reached. Streaming whatever we have...")
                         
                         # Clear previous "Thinking..." tokens if any? 
                         # Actually just stream normally.
@@ -159,6 +172,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                         llm_span = qlog.start_span("llm_generation_final")
                         async for token in chat_chain.stream_response(query, context_str, parent_trace=trace):
                             full_response += token
+                            print(f"Sending token: {token[:10]}...") # Added logging
                             await websocket.send_json({"type": "token", "content": token})
                         
                         final_full_response = full_response
@@ -221,8 +235,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
                 # 10. Done and Sync Stats
                 print(f"Response completed in {(time.time() - start_time):.2f}s (Attempts: {attempt+1})")
-                await websocket.send_json({"type": "done", "content": ""})
-
+                
                 await websocket.send_json({
                     "type": "stats",
                     "session_id": session_id,
@@ -236,6 +249,13 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                     trace.update(output=f"Error: {str(e)}")
                 print(f"Chat error: {e}")
                 await websocket.send_json({"type": "error", "content": f"An error occurred: {str(e)}"})
+            finally:
+                # ALWAYS send done to unlock frontend UI
+                try:
+                    await websocket.send_json({"type": "done", "content": ""})
+                except:
+                    pass
+
     except WebSocketDisconnect:
         manager.disconnect(websocket, session_id)
         print(f"Client disconnected for session {session_id}")

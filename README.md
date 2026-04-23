@@ -8,7 +8,13 @@ It features dual pipelines for ingestion (text and table separation), Knowledge 
 - **Frontend:** React 18, Vite, TailwindCSS, Zustand
 - **Observability:** Langfuse tracing
 
+## Documentation
+Additional documentation about the system design and project structure can be found in the `doc/` directory:
+- [Architecture Details](doc/MEMGRAPH_ARCHITECTURE.md)
+- [File Structure](doc/file_structure.md)
+
 ---
+
 
 ## Local Development Setup
 
