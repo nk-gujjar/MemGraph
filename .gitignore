@@ -12,6 +12,9 @@ ENV/
 
 # Local Databases & Indexes
 memgraph.db
+traditional_rag.db
+faiss_trad/
+faiss_trad/
 faiss_indexes/
 
 # Document Uploads
@@ -31,4 +34,4 @@ dist-ssr/
 *.swo
 
 # Logs
-*.log
+logs/*

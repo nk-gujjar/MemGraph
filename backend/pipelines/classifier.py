@@ -1,10 +1,10 @@
-import cohere
 import json
+from backend.llm_config import llm_client
 from backend.config import settings
 
 class StrategyClassifier:
     def __init__(self):
-        self.cohere_client = cohere.Client(api_key=settings.COHERE_API_KEY)
+        self.cohere_client = llm_client.cohere
 
     def classify(self, content_preview: str, description: str = None) -> str:
         """
@@ -26,7 +26,7 @@ OUTPUT:
 Respond ONLY with a JSON object in this format: {{"strategy": "recursive" | "page" | "subsection", "reason": "brief reason"}}
 """
         try:
-            response = self.cohere_client.chat(
+            response = llm_client.chat(
                 message=prompt,
                 model=settings.CHAT_MODEL_FAST
             )

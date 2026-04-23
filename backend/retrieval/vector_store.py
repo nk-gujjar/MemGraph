@@ -5,9 +5,11 @@ import cohere
 from backend.config import settings
 from backend.db.sqlite import SessionLocal, ChunkMetadata, TableMetadata
 
+from backend.llm_config import llm_client
+
 class VectorStore:
     def __init__(self):
-        self.cohere_client = cohere.Client(api_key=settings.COHERE_API_KEY)
+        self.cohere_client = llm_client.cohere
         self.text_index_path = os.path.join(settings.FAISS_INDEX_DIR, "text.index")
         self.table_index_path = os.path.join(settings.FAISS_INDEX_DIR, "table.index")
         
@@ -43,27 +45,50 @@ class VectorStore:
     def add_texts(self, session_id: str, texts: list[str], metadatas: list[dict]):
         if not texts:
             return
-        embeddings = self._get_embeddings(texts, "search_document")
+            
+        import time
+        batch_size = 90
+        total_chunks = len(texts)
+        
+        print(f"[VectorStore] Adding {total_chunks} texts in batches of {batch_size}...")
         
         db = SessionLocal()
         try:
-            start_id = self.text_index.ntotal
-            self.text_index.add(embeddings)
+            for i in range(0, total_chunks, batch_size):
+                batch_texts = texts[i : i + batch_size]
+                batch_metas = metadatas[i : i + batch_size]
+                
+                # Get embeddings for this batch
+                embeddings = self._get_embeddings(batch_texts, "search_document")
+                
+                # Add to FAISS
+                start_id = self.text_index.ntotal
+                self.text_index.add(embeddings)
+                
+                # Add metadata to SQLite
+                for j, (text, meta) in enumerate(zip(batch_texts, batch_metas)):
+                    db_chunk = ChunkMetadata(
+                        id=start_id + j,
+                        session_id=session_id,
+                        filename=meta.get("filename", ""),
+                        page_number=meta.get("page_number"),
+                        chunk_index=meta.get("chunk_index", i + j),
+                        text=text
+                    )
+                    db.add(db_chunk)
+                
+                db.commit() # Commit each batch
+                
+                if i + batch_size < total_chunks:
+                    print(f"  [VectorStore] Processed {i + len(batch_texts)}/{total_chunks}... waiting 1.1s for rate limit")
+                    time.sleep(1.1)
             
-            for i, (text, meta) in enumerate(zip(texts, metadatas)):
-                db_chunk = ChunkMetadata(
-                    id=start_id + i,
-                    session_id=session_id,
-                    filename=meta.get("filename", ""),
-                    page_number=meta.get("page_number"),
-                    chunk_index=meta.get("chunk_index", getattr(meta, "chunk_index", 0)),
-                    text=text
-                )
-                db.add(db_chunk)
-            db.commit()
             self._save_indexes()
+            print(f"[VectorStore] Successfully indexed {total_chunks} chunks.")
+            
         except Exception as e:
             db.rollback()
+            print(f"[VectorStore] Error during add_texts: {e}")
             raise e
         finally:
             db.close()
