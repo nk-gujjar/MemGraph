@@ -69,20 +69,4 @@ Integrated with **Langfuse**, the system provides tracing for:
 ## Data Flow Diagram
 ![MemGraph Architecture](./MemGraph_arch.png)
 
-```mermaid
-graph TD
-    User((User)) -->|WebSocket| API[Websocket API]
-    API --> Intent[Intent Detector]
-    Intent -->|rag/tables| Retriever[Multi-Source Retriever]
-    Intent -->|chat| History[Short-Term Memory]
-    Retriever --> FAISS[(FAISS Vector Store)]
-    Retriever --> SQLite[(SQLite Metadata)]
-    Retriever --> Memory[Long-Term Memory]
-    History --> Context[Context Builder]
-    FAISS --> Context
-    SQLite --> Context
-    Context --> LLM[Cohere Command-R-Plus]
-    LLM -->|Stream| User
-    LLM -->|Final Stats| Stats[Post Processor]
-    Stats --> Langfuse{Langfuse Tracing}
-```
+
