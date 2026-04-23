@@ -14,6 +14,7 @@ ENV/
 memgraph.db
 traditional_rag.db
 faiss_trad/
+faiss_trad/
 faiss_indexes/
 
 # Document Uploads
