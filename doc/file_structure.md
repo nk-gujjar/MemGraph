@@ -2,52 +2,117 @@
 
 This document outlines the high-level file and directory structure of the MemGraph project.
 
+---
+
 ## Root Directory
 
-- `backend/`: The primary backend application (FastAPI) implementing the MemGraph RAG approach.
-- `traditional_rag/`: The baseline traditional RAG implementation for comparison against MemGraph.
-- `frontend/`: The React-based user interface for interacting with the document assistants.
-- `doc/`: Documentation files, including architecture and file structure.
-  - `MEMGRAPH_ARCHITECTURE.md`: Detailed architecture design of the MemGraph approach.
-  - `file_structure.md`: This document.
-- `faiss_indexes/`: Storage directory for FAISS vector indexes used by MemGraph.
-- `faiss_trad/`: Storage directory for FAISS vector indexes used by the Traditional RAG.
-- `uploads/`: Directory where user-uploaded documents are stored for processing.
-- `logs/`: Application and evaluation logs.
-- `run_memgraph.sh`: Script to start the MemGraph backend server.
-- `run_trad.sh`: Script to start the Traditional RAG backend server.
+| Path | Description |
+|---|---|
+| `backend/` | Primary FastAPI backend implementing the MemGraph RAG pipeline |
+| `traditional_rag/` | Baseline traditional RAG implementation used for benchmarking |
+| `frontend/` | React + Vite user interface |
+| `doc/` | Documentation files |
+| `faiss_indexes/` | FAISS vector index storage for MemGraph |
+| `faiss_trad/` | FAISS vector index storage for Traditional RAG |
+| `uploads/` | User-uploaded documents awaiting processing |
+| `logs/` | Application and evaluation logs (includes Langfuse-exported JSONL benchmark data) |
+| `run_memgraph.sh` | Script to start the MemGraph backend server |
+| `run_trad.sh` | Script to start the Traditional RAG backend server |
+
+### `doc/`
+- `MEMGRAPH_ARCHITECTURE.md` — Full architecture deep-dive (ingestion, memory, retrieval, observability)
+- `MemGraph_arch.png` — System architecture diagram
+- `file_structure.md` — This document
+
+---
 
 ## Backend Directory (`backend/`)
 
-The `backend` directory contains the FastAPI application for the advanced MemGraph pipeline.
+The MemGraph advanced RAG pipeline built on FastAPI, LangChain, and Cohere.
 
-- `main.py`: The entry point for the FastAPI application.
-- `config.py` / `llm_config.py`: Configuration files for models and API keys.
-- `api/`: API routes including WebSocket handlers for chat.
-- `chat/`: Core conversational logic, context building, and intent detection.
-- `db/`: Database configuration and SQLite setup.
-- `observability/`: Tracing, logging, and LLM-as-Judge evaluation logic.
-- `pipelines/`: Document ingestion and table/text processing pipelines.
-- `retrieval/`: Components for retrieving data from the vector store, memory, and knowledge graph.
+```
+backend/
+├── main.py                  # FastAPI app entry point
+├── config.py                # Environment and API key configuration
+├── llm_config.py            # Cohere model configuration (Command-R-Plus, embeddings)
+├── api/                     # REST and WebSocket route handlers
+├── chat/                    # Conversational logic
+│   ├── intent.py            # Intent classifier & query rephraser
+│   ├── context_builder.py   # Aggregates and truncates retrieval context (3,500 token window)
+│   └── ...
+├── db/                      # SQLite setup and session/metadata management
+├── observability/           # Langfuse tracing, LLM-as-Judge evaluation logic
+├── pipelines/               # Ingestion pipelines
+│   ├── ingest.py            # Unstructured.io partitioning (text + table separation)
+│   ├── classifier.py        # Chunking strategy classifier (Recursive / Page / Subsection)
+│   └── ...
+└── retrieval/               # Multi-source retrieval
+    ├── retriever.py         # Parallel search across FAISS, Knowledge Graph, Long-Term Memory
+    └── ...
+```
+
+### Key pipeline components
+
+| Module | Role |
+|---|---|
+| `classifier.py` | Selects chunking strategy using Cohere LLM analysis |
+| `ingest.py` | Splits documents into text chunks and table summaries |
+| `intent.py` | Classifies query intent; rewrites follow-up queries |
+| `retriever.py` | Fetches Top-K results from FAISS, KG, and memory in parallel |
+| `context_builder.py` | Ranks, deduplicates, and truncates context to token budget |
+| `observability/` | LLM-as-Judge scoring, Langfuse span tracing |
+
+---
 
 ## Traditional RAG Directory (`traditional_rag/`)
 
-The `traditional_rag` directory contains the baseline implementation.
+Baseline implementation used for benchmarking against MemGraph.
 
-- `main.py`: Entry point for the baseline FastAPI application.
-- `websocket.py`: WebSocket handler for the traditional chat interface.
-- `vector_store.py`: FAISS-based vector store implementation.
-- `retriever.py` / `memory.py`: Simple retrieval and memory mechanisms.
-- `ingest.py`: Document ingestion pipeline for the traditional approach.
+```
+traditional_rag/
+├── main.py          # FastAPI app entry point
+├── websocket.py     # WebSocket handler for chat
+├── vector_store.py  # FAISS vector store (single store, no table separation)
+├── retriever.py     # Simple Top-K vector retrieval
+├── memory.py        # Last-N message memory (no knowledge graph)
+└── ingest.py        # Document ingestion (single pipeline)
+```
+
+**Differences from MemGraph:** no chunking classifier, no table pipeline, no Knowledge Graph, no LLM-as-Judge loop, flat memory (last N messages only).
+
+---
 
 ## Frontend Directory (`frontend/`)
 
-The `frontend` directory is a Vite+React web application.
+React 18 + Vite single-page application.
 
-- `src/`: Source code for the React application.
-  - `components/`: Reusable React components (ChatWindow, FileUploader, etc.).
-  - `hooks/`: Custom React hooks (e.g., `useChat`).
-  - `store/`: Zustand-based state management (`appStore.ts`).
-  - `types/`: TypeScript interfaces and type definitions.
-  - `lib/`: Utility functions and library wrappers.
-- `vite.config.ts`: Vite build configuration.
+```
+frontend/
+├── vite.config.ts           # Vite build configuration
+└── src/
+    ├── components/          # Reusable UI components
+    │   ├── ChatWindow/      # Message rendering, streaming display
+    │   ├── FileUploader/    # Drag & drop upload with ingestion progress
+    │   └── ...
+    ├── hooks/               # Custom React hooks
+    │   └── useChat.ts       # WebSocket chat lifecycle management
+    ├── store/               # Global state
+    │   └── appStore.ts      # Zustand store (sessions, messages, UI state)
+    ├── types/               # TypeScript interfaces and type definitions
+    └── lib/                 # Utility functions and library wrappers
+```
+
+---
+
+## Benchmark Data (`logs/`)
+
+The `logs/` directory contains JSONL evaluation exports used for the MemGraph vs Traditional RAG benchmark analysis.
+
+| File | Contents |
+|---|---|
+| `memgraph_eval.jsonl` | 40 query traces from the MemGraph pipeline |
+| `traditional_rag_eval.jsonl` | 40 query traces from the Traditional RAG pipeline |
+
+Each record includes: `latency_total_ms`, `tokens` (input/output/total), `confidence` (retrieval score, combined, source count), `judge` (faithfulness, relevance, completeness, coherence, overall), and `spans` (per-stage latency breakdown).
+
+See [MEMGRAPH_ARCHITECTURE.md](MEMGRAPH_ARCHITECTURE.md) for full benchmark results and analysis.
