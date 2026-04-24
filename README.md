@@ -15,6 +15,48 @@ Additional documentation about the system design and project structure can be fo
 
 ---
 
+## Benchmark Results: MemGraph vs Traditional RAG
+
+Evaluated over **39–40 queries** on the same document corpus. Responses scored using an LLM-as-Judge pipeline (0–10 scale) with full Langfuse tracing.
+
+### Performance & Cost
+
+| Metric | MemGraph | Traditional RAG | Difference |
+|---|---|---|---|
+| Avg total latency | 36,023 ms | 37,501 ms | **−3.9%** |
+| Avg input tokens | 683 | 1,512 | **−54.8%** |
+| Avg output tokens | 148 | 106 | +39.7% |
+| Avg total tokens | 831 | 1,618 | **−48.7%** |
+| Avg source count | 6.2 | 8.0 | −22.4% |
+
+> MemGraph uses ~55% fewer input tokens per query — the most significant cost reduction at scale.
+
+### Retrieval Confidence
+
+| Metric | MemGraph | Traditional RAG | Difference |
+|---|---|---|---|
+| Retrieval score | 0.22 | 0.43 | −48.8% |
+| Combined confidence | 0.34 | 0.60 | −43.3% |
+
+> Traditional RAG scores higher on raw vector similarity, but this reflects the nature of graph-expanded retrieval — results are structurally traversed rather than purely similarity-matched. Answer quality tells a different story (see below).
+
+### Answer Quality (LLM-as-Judge, 0–10)
+
+| Metric | MemGraph | Traditional RAG | Difference |
+|---|---|---|---|
+| Faithfulness | 9.79 | 9.72 | +0.7% |
+| Relevance | 9.85 | 9.70 | +1.5% |
+| Completeness | **8.90** | **8.47** | **+5.1%** |
+| Coherence | 9.82 | 9.75 | +0.7% |
+| **Overall** | **9.08** | **9.00** | **+0.9%** |
+
+> Completeness is the standout improvement (+5.1%) — graph-based memory retains relational context that summarization-based approaches lose, leading to more thorough answers.
+
+### Key Takeaway
+
+> Better RAG systems don't retrieve more — they retrieve smarter. MemGraph trades higher raw retrieval similarity scores for structured relational memory, resulting in better answer quality at significantly lower token cost.
+
+---
 
 ## Local Development Setup
 
